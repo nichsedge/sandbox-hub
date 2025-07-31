@@ -1,0 +1,25 @@
+version: "3.8"
+
+services:
+  spark-master:
+    image: bitnami/spark
+    restart: always
+    environment:
+      SPARK_EXECUTOR_MEMORY: 4g
+      SPARK_CORES_MAX: 4
+    ports:
+      - "8090:8080"
+    volumes:
+      - spark-data:/opt/spark/data
+
+  spark-worker:
+    image: bitnami/spark
+    restart: always
+    environment:
+      SPARK_MASTER: spark://spark-master:7077
+    volumes:
+      - spark-data:/opt/spark/data
+
+volumes:
+  spark-data:
+    {}

@@ -1,0 +1,406 @@
+{
+  "document_info": {
+    "submission_info": "Tanggal Penyampaian/Jenis Laporan - Tahun: 14 April 2023/Periodik - 2022",
+    "field": "LEGISLATIF",
+    "institution": "DEWAN PERWAKILAN RAKYAT (DPR)",
+    "work_unit": "FRAKSI PARTAI GERAKAN INDONESIA RAYA"
+  },
+  "personal_data": {
+    "name": "FADLI ZON",
+    "position": "ANGGOTA DPR RI",
+    "nhk": "204490"
+  },
+  "assets": {
+    "land_and_buildings": [
+      {
+        "id": 6,
+        "land_area": 1158,
+        "building_area": 100,
+        "location": "BANDUNG",
+        "acquisition_method": "HASIL SENDIRI",
+        "value": 197600000
+      },
+      {
+        "id": 7,
+        "land_area": 1110,
+        "building_area": 500,
+        "location": "TANAH DATAR",
+        "acquisition_method": "HASIL SENDIRI",
+        "value": 927700000
+      },
+      {
+        "id": 10,
+        "land_area": 2500,
+        "building_area": 665,
+        "location": "TANAH DATAR",
+        "acquisition_method": "HASIL SENDIRI",
+        "value": 175000000
+      },
+      {
+        "id": 15,
+        "land_area": 294,
+        "building_area": 38,
+        "location": "SERANG",
+        "acquisition_method": "HASIL SENDIRI",
+        "value": 95000000
+      },
+      {
+        "id": 18,
+        "land_area": 1085,
+        "building_area": 0,
+        "location": "BOGOR",
+        "acquisition_method": "HASIL SENDIRI",
+        "value": 52080000
+      },
+      {
+        "id": 19,
+        "land_area": 1485,
+        "building_area": 0,
+        "location": "BOGOR",
+        "acquisition_method": "HASIL SENDIRI",
+        "value": 71280000
+      },
+      {
+        "id": 20,
+        "land_area": 4430,
+        "building_area": 0,
+        "location": "BOGOR",
+        "acquisition_method": "HASIL SENDIRI",
+        "value": 212640000
+      },
+      {
+        "id": 21,
+        "land_area": 236,
+        "building_area": 0,
+        "location": "KOTA JAKARTA TIMUR",
+        "acquisition_method": "HASIL SENDIRI",
+        "value": 126800000
+      },
+      {
+        "id": 23,
+        "land_area": 1753,
+        "building_area": 0,
+        "location": "BOGOR",
+        "acquisition_method": "HASIL SENDIRI",
+        "value": 35060000
+      },
+      {
+        "id": 24,
+        "land_area": 3000,
+        "building_area": 0,
+        "location": "BOGOR",
+        "acquisition_method": "HASIL SENDIRI",
+        "value": 60000000
+      },
+      {
+        "id": 25,
+        "land_area": 2375,
+        "building_area": 0,
+        "location": "BOGOR",
+        "acquisition_method": "HASIL SENDIRI",
+        "value": 304000000
+      },
+      {
+        "id": 26,
+        "land_area": 979,
+        "building_area": 0,
+        "location": "BOGOR",
+        "acquisition_method": "HASIL SENDIRI",
+        "value": 102000000
+      },
+      {
+        "id": 27,
+        "land_area": 760,
+        "building_area": 0,
+        "location": "KOTA JAKARTA SELATAN",
+        "acquisition_method": "HASIL SENDIRI",
+        "value": 550000000
+      },
+      {
+        "id": 28,
+        "land_area": 100,
+        "building_area": 0,
+        "location": "KOTA JAKARTA SELATAN",
+        "acquisition_method": "HASIL SENDIRI",
+        "value": 62000000
+      },
+      {
+        "id": 29,
+        "land_area": 88,
+        "building_area": 0,
+        "location": "KOTA JAKARTA SELATAN",
+        "acquisition_method": "HASIL SENDIRI",
+        "value": 55000000
+      },
+      {
+        "id": 31,
+        "land_area": 390,
+        "building_area": 0,
+        "location": "BOGOR",
+        "acquisition_method": "HASIL SENDIRI",
+        "value": 94770000
+      },
+      {
+        "id": 32,
+        "land_area": 950,
+        "building_area": 500,
+        "location": "BOGOR",
+        "acquisition_method": "HASIL SENDIRI",
+        "value": 1336590000
+      },
+      {
+        "id": 34,
+        "land_area": 620,
+        "building_area": 0,
+        "location": "BOGOR",
+        "acquisition_method": "HASIL SENDIRI",
+        "value": 176700000
+      },
+      {
+        "id": 35,
+        "land_area": 195,
+        "building_area": 0,
+        "location": "BOGOR",
+        "acquisition_method": "HASIL SENDIRI",
+        "value": 39000000
+      },
+      {
+        "id": 36,
+        "land_area": 623,
+        "building_area": 0,
+        "location": "BOGOR",
+        "acquisition_method": "HASIL SENDIRI",
+        "value": 177555000
+      },
+      {
+        "id": 37,
+        "land_area": 378,
+        "building_area": 0,
+        "location": "BOGOR",
+        "acquisition_method": "HASIL SENDIRI",
+        "value": 75600000
+      },
+      {
+        "id": 38,
+        "land_area": 2397,
+        "building_area": 0,
+        "location": "BOGOR",
+        "acquisition_method": "HASIL SENDIRI",
+        "value": 71910000
+      },
+      {
+        "id": 39,
+        "land_area": 1230,
+        "building_area": 0,
+        "location": "BOGOR",
+        "acquisition_method": "HASIL SENDIRI",
+        "value": 36900000
+      },
+      {
+        "id": 40,
+        "land_area": 2728,
+        "building_area": 0,
+        "location": "BOGOR",
+        "acquisition_method": "HASIL SENDIRI",
+        "value": 81840000
+      },
+      {
+        "id": 41,
+        "land_area": 10490,
+        "building_area": 0,
+        "location": "BOGOR",
+        "acquisition_method": "HASIL SENDIRI",
+        "value": 188820000
+      },
+      {
+        "id": 42,
+        "land_area": 2944,
+        "building_area": 0,
+        "location": "BOGOR",
+        "acquisition_method": "HASIL SENDIRI",
+        "value": 52992000
+      },
+      {
+        "id": 43,
+        "land_area": 12740,
+        "building_area": 0,
+        "location": "BOGOR",
+        "acquisition_method": "HASIL SENDIRI",
+        "value": 229320000
+      },
+      {
+        "id": 44,
+        "land_area": 1477,
+        "building_area": 0,
+        "location": "BOGOR",
+        "acquisition_method": "HASIL SENDIRI",
+        "value": 26586000
+      },
+      {
+        "id": 45,
+        "land_area": 8120,
+        "building_area": 0,
+        "location": "BOGOR",
+        "acquisition_method": "HASIL SENDIRI",
+        "value": 146160000
+      },
+      {
+        "id": 46,
+        "land_area": 6695,
+        "building_area": 0,
+        "location": "BOGOR",
+        "acquisition_method": "HASIL SENDIRI",
+        "value": 420510000
+      },
+      {
+        "id": 47,
+        "land_area": 10298,
+        "building_area": 0,
+        "location": "BOGOR",
+        "acquisition_method": "HASIL SENDIRI",
+        "value": 485364000
+      },
+      {
+        "id": 49,
+        "land_area": 13030,
+        "building_area": 0,
+        "location": "BOGOR",
+        "acquisition_method": "HASIL SENDIRI",
+        "value": 351810000
+      },
+      {
+        "id": 50,
+        "land_area": 10500,
+        "building_area": 0,
+        "location": "BOGOR",
+        "acquisition_method": "HASIL SENDIRI",
+        "value": 283500000
+      },
+      {
+        "id": 51,
+        "land_area": 443,
+        "building_area": 0,
+        "location": "BOGOR",
+        "acquisition_method": "HASIL SENDIRI",
+        "value": 8860000
+      },
+      {
+        "id": 52,
+        "land_area": 985,
+        "building_area": 0,
+        "location": "BOGOR",
+        "acquisition_method": "HASIL SENDIRI",
+        "value": 26595000
+      },
+      {
+        "id": 53,
+        "land_area": 1373,
+        "building_area": 0,
+        "location": "BOGOR",
+        "acquisition_method": "HASIL SENDIRI",
+        "value": 49428000
+      },
+      {
+        "id": 54,
+        "land_area": 950,
+        "building_area": 0,
+        "location": "BOGOR",
+        "acquisition_method": "HASIL SENDIRI",
+        "value": 34200000
+      },
+      {
+        "id": 55,
+        "land_area": 432,
+        "building_area": 0,
+        "location": "BOGOR",
+        "acquisition_method": "HASIL SENDIRI",
+        "value": 11664000
+      },
+      {
+        "id": 56,
+        "land_area": 1080,
+        "building_area": 0,
+        "location": "BOGOR",
+        "acquisition_method": "HASIL SENDIRI",
+        "value": 29160000
+      },
+      {
+        "id": 58,
+        "land_area": 722,
+        "building_area": 0,
+        "location": "BOGOR",
+        "acquisition_method": "HASIL SENDIRI",
+        "value": 685900000
+      },
+      {
+        "id": 59,
+        "land_area": 878,
+        "building_area": 0,
+        "location": "BOGOR",
+        "acquisition_method": "HASIL SENDIRI",
+        "value": 855000000
+      },
+      {
+        "id": 60,
+        "land_area": 2400,
+        "building_area": 0,
+        "location": "BOGOR",
+        "acquisition_method": "HASIL SENDIRI",
+        "value": 2280000000
+      },
+      {
+        "id": 61,
+        "land_area": 590,
+        "building_area": 0,
+        "location": "BOGOR",
+        "acquisition_method": "HASIL SENDIRI",
+        "value": 228470000
+      },
+      {
+        "id": 62,
+        "land_area": 751,
+        "building_area": 0,
+        "location": "BOGOR",
+        "acquisition_method": "HASIL SENDIRI",
+        "value": 251585000
+      }
+    ],
+    "transportation_and_machinery": [
+      {
+        "id": 1,
+        "type": "MOBIL",
+        "description": "TOYOTA FORTUNER JEEP",
+        "year": 2014,
+        "acquisition_method": "HASIL SENDIRI",
+        "value": 260000000
+      },
+      {
+        "id": 5,
+        "type": "MOTOR",
+        "description": "HONDA SEPEDA MOTOR",
+        "year": 1997,
+        "acquisition_method": "HASIL SENDIRI",
+        "value": 1000000
+      },
+      {
+        "id": 10,
+        "type": "MOBIL",
+        "description": "TOYOTA CROWN ROY",
+        "year": 2009,
+        "acquisition_method": "HASIL SENDIRI",
+        "value": 62500000
+      }
+    ],
+    "other_movable_assets": 9000000000,
+    "securities": 6450000000,
+    "cash_and_equivalents": 5193327216,
+    "other_assets": 0,
+    "land_and_buildings_total": 20273199000,
+    "transportation_total": 1475000000
+  },
+  "liabilities": 5468000000,
+  "net_worth": 0,
+  "summary": {
+    "subtotal": 42391526216
+  }
+}
