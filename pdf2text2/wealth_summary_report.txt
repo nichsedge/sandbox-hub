@@ -1,0 +1,26 @@
+============================================================
+LAPORAN HARTA KEKAYAAN PENYELENGGARA NEGARA
+============================================================
+
+DATA PRIBADI:
+Nama: FADLI ZON
+Jabatan: ANGGOTA DPR RI
+NHK: 204490
+
+RINGKASAN HARTA:
+Tanah dan Bangunan: Rp 20.273.199.000
+Alat Transportasi: Rp 1.475.000.000
+Harta Bergerak Lainnya: Rp 9.000.000.000
+Surat Berharga: Rp 6.450.000.000
+Kas dan Setara Kas: Rp 5.193.327.216
+
+Sub Total: Rp 42.391.526.216
+Hutang: Rp 5.468.000.000
+TOTAL HARTA KEKAYAAN: Rp 0
+
+PROPERTI DENGAN NILAI TERTINGGI:
+1. BOGOR - Rp 2.280.000.000
+2. BOGOR - Rp 1.336.590.000
+3. TANAH DATAR - Rp 927.700.000
+4. BOGOR - Rp 855.000.000
+5. BOGOR - Rp 685.900.000

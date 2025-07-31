@@ -1,0 +1,22 @@
+{
+  "report_date": "14 April 2023/Periodik - 2022",
+  "header": {
+    "bidang": "LEGISLATIF",
+    "lembaga": "DEWAN PERWAKILAN RAKYAT (DPR)",
+    "unit kerja": "FRAKSI PARTAI GERAKAN INDONESIA RAYA"
+  },
+  "personal_data": {},
+  "assets": {
+    "tanah_dan_bangunan": [],
+    "alat_transportasi_dan_mesin": [],
+    "harta_bergerak_lainnya": 0,
+    "surat_berharga": 0,
+    "kas_setara_kas": 0,
+    "harta_lainnya": 0
+  },
+  "totals": {
+    "subtotal": 42391526216,
+    "hutang": 5468000000,
+    "total_harta": 36923526216
+  }
+}
