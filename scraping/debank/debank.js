@@ -45,11 +45,14 @@ async function extractProfileData(page) {
 
 async function extractWallets(page) {
   await page.waitForSelector("div[class*='TokenWallet_table']", { timeout: 10000 });
+
   return await page.evaluate(() => {
     const table = document.querySelector("div[class*='TokenWallet_table']");
     if (!table) return [];
+
     const headerEls = table.querySelectorAll("div[class*='db-table-headerItem']");
     const headers = Array.from(headerEls).map((el) => el.innerText.trim());
+
     const rowEls = table.querySelectorAll("div[class*='db-table-row']");
     return Array.from(rowEls).map((row) => {
       const cells = row.querySelectorAll("div[class*='db-table-cell']");
@@ -60,40 +63,66 @@ async function extractWallets(page) {
         }
         return cell.innerText.trim();
       });
+
+      // Extract the href and chain
+      const tokenLink = cells[0]?.querySelector("a");
+      let chain = "";
+      if (tokenLink?.getAttribute("href")) {
+        const hrefParts = tokenLink.getAttribute("href").split("/");
+        if (hrefParts.length >= 3) {
+          chain = hrefParts[2]; // /token/{chain}/{token} -> get {chain}
+        }
+      }
+
       const rowObj = {};
       headers.forEach((key, i) => {
         rowObj[key] = values[i] || "";
       });
+      rowObj.chain = chain;
+
       return rowObj;
     });
   });
 }
 
+
 async function extractProtocols(page) {
-  await page.waitForSelector("div[class^='table_contentRow__']", { timeout: 10000 });
-  const headerGroups = await page.$$eval(
-    "div[class^='table_header__']",
-    (headers) =>
-      headers.map((header) => {
-        const spans = Array.from(header.querySelectorAll("div > span"));
-        return spans.map((span) => span.innerText.trim());
-      })
-  );
-  const valueGroups = await page.$$eval(
-    "div[class^='table_contentRow__']",
-    (rows) =>
-      rows.map((row) => {
-        const spans = Array.from(row.querySelectorAll("div > span"));
-        return spans.map((span) => span.innerText.trim());
-      })
-  );
-  return valueGroups.map((values, index) => {
-    const headers = headerGroups[index] || [];
-    const obj = {};
-    headers.forEach((key, i) => {
-      obj[key] = values[i] || null;
+  await page.waitForSelector('div[class^="Project_project__"]', { timeout: 10000 });
+
+  return await page.$$eval('div[class^="Project_project__"]', (projects) => {
+    return projects.map((project) => {
+      const nameElem = project.querySelector('span[class^="ProjectTitle_protocolLink"]');
+      const usdValueElem = project.querySelector('div[class^="projectTitle-number"]');
+
+      const protocolName = nameElem?.innerText.trim() || null;
+      const usdValue = usdValueElem?.innerText.trim() || null;
+
+      // Extract headers
+      const headerElems = project.querySelectorAll('div[class^="table_header__"] div > span');
+      const headers = Array.from(headerElems).map((el) => el.innerText.trim());
+
+      // Extract rows
+      const rowElems = project.querySelectorAll('div[class^="table_contentRow__"]');
+      const rows = Array.from(rowElems).map((row) => {
+        const cols = row.querySelectorAll('div > span');
+        return Array.from(cols).map((col) => col.innerText.trim());
+      });
+
+      // Combine headers with values
+      const data = rows.map((values) => {
+        const obj = {};
+        headers.forEach((key, i) => {
+          obj[key] = values[i] || null;
+        });
+        return obj;
+      });
+
+      return {
+        name: protocolName,
+        usdValue,
+        data,
+      };
     });
-    return obj;
   });
 }
 
