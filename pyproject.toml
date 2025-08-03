@@ -14,13 +14,23 @@ dependencies = [
     "openai>=1.96.1",
     "pandas>=2.3.1",
     "psycopg2-binary>=2.9.10",
+    "pypdf>=5.9.0",
+    "python-frontmatter>=1.1.0",
     "requests>=2.32.4",
     "seaborn>=0.13.2",
     "sqlalchemy>=2.0.42",
     "tiktoken>=0.9.0",
     "xlrd>=2.0.2",
     "yfinance>=0.2.65",
-    "youtube-transcript-api==1.1.1",
+    "youtube-transcript-api>=1.2.1",
 ]
 
 [tool.uv.workspace]
+members = [
+    "crypto-data",
+]
+
+[dependency-groups]
+dev = [
+    "ipykernel>=6.30.1",
+]

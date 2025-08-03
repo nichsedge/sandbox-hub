@@ -48,32 +48,40 @@ class YouTubeSubtitleSummarizer:
 
     def get_subtitles(self, video_id: str) -> str:
         try:
-            transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
+            # Instantiate API and list available transcripts (per 1.2.x docs)
+            ytt_api = YouTubeTranscriptApi()
+            transcript_list = ytt_api.list(video_id)
 
-            # Try native English
+            # Try native English (prefer manually created)
             try:
                 transcript = transcript_list.find_transcript(["en"])
                 if not transcript.is_generated:
                     logging.info("✓ Found official English subtitles")
-                    return self._format_transcript(transcript.fetch())
-            except:
+                    fetched = transcript.fetch()
+                    fetched_list = list(fetched) if not isinstance(fetched, list) else fetched
+                    return self._format_transcript(fetched_list)
+            except Exception:
                 pass
 
             # Try auto-generated English
             try:
                 transcript = transcript_list.find_generated_transcript(["en"])
                 logging.info("✓ Found auto-generated English subtitles")
-                return self._format_transcript(transcript.fetch())
-            except:
+                fetched = transcript.fetch()
+                fetched_list = list(fetched) if not isinstance(fetched, list) else fetched
+                return self._format_transcript(fetched_list)
+            except Exception:
                 pass
 
-            # Try translations
+            # Try translations to English
             for transcript in transcript_list:
                 try:
                     translated = transcript.translate("en")
                     logging.info(f"✓ Translated subtitles from {transcript.language_code}")
-                    return self._format_transcript(translated.fetch())
-                except:
+                    fetched = translated.fetch()
+                    fetched_list = list(fetched) if not isinstance(fetched, list) else fetched
+                    return self._format_transcript(fetched_list)
+                except Exception:
                     continue
 
             raise Exception("No English or translatable subtitles found.")
@@ -145,7 +153,7 @@ class YouTubeSubtitleSummarizer:
             )
             response = client.chat.completions.create(
             extra_headers={
-                "HTTP-Referer": "https://ichsanulamal.github.io/digital-garden", # Optional. Site URL for rankings on openrouter.ai.
+                "HTTP-Referer": "https://nichsedge.github.io/digital-garden", # Optional. Site URL for rankings on openrouter.ai.
                 "X-Title": "Youtube Summarizer", # Optional. Site title for rankings on openrouter.ai.
             },
             extra_body={},

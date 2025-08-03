@@ -10,7 +10,7 @@ The project uses Redpanda, a Kafka-compatible message streaming platform, to han
 
 1. Clone the repository:
    ```shell
-   git clone https://github.com/ichsanulamal/bitwyre-task.git
+   git clone https://github.com/nichsedge/bitwyre-task.git
    ```
 
 2. Activate environment and install the required dependencies:

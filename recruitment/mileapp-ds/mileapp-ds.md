@@ -10,7 +10,7 @@ We have provided a sample of delivery task for 10 days, from this data we'd like
 
 You can get the data from 
 
-[data-sample.json](https://github.com/ichsanulamal/datasets/raw/main/data-sample.json)
+[data-sample.json](https://github.com/nichsedge/datasets/raw/main/data-sample.json)
 
 ## Fields
 

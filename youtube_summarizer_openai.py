@@ -1,7 +1,7 @@
 import os
 import re
 import logging
-from typing import List, Dict, Optional, Tuple
+from typing import List, Dict, Optional, Tuple, Set
 from urllib.parse import urlparse, parse_qs
 import requests
 from openai import OpenAI
@@ -39,6 +39,21 @@ class YouTubeSubtitleSummarizer:
         self.encoding = tiktoken.encoding_for_model("gpt-3.5-turbo")
         self.max_tokens_per_chunk = 3000  # Leave room for system prompt and response
 
+    def is_playlist_url(self, url: str) -> bool:
+        """
+        Detect if the provided URL is a YouTube playlist URL.
+        """
+        parsed = urlparse(url)
+        if parsed.hostname not in ("www.youtube.com", "youtube.com"):
+            return False
+        if parsed.path == "/playlist":
+            return True
+        # watch URL can embed playlist via list= param
+        if parsed.path == "/watch":
+            qs = parse_qs(parsed.query)
+            return "list" in qs
+        return False
+
     def extract_video_id(self, url: str) -> str:
         """
         Extract YouTube video ID from URL
@@ -50,6 +65,10 @@ class YouTubeSubtitleSummarizer:
             Video ID string
         """
         parsed_url = urlparse(url)
+
+        # Guard: don't allow playlist URL here
+        if self.is_playlist_url(url):
+            raise ValueError("Provided URL is a playlist. Use process_playlist() for playlists.")
 
         if parsed_url.hostname == "youtu.be":
             return parsed_url.path[1:]
@@ -74,50 +93,111 @@ class YouTubeSubtitleSummarizer:
             Subtitle text as string
         """
         try:
-            # Get available transcripts
-            transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
+            # Instantiate API per latest docs and list available transcripts
+            ytt_api = YouTubeTranscriptApi()
+            transcript_list = ytt_api.list(video_id)
 
-            # Priority 1: Official English subtitles
+            # Priority 1: Official English subtitles (manually created if available)
             try:
                 transcript = transcript_list.find_transcript(["en"])
                 if not transcript.is_generated:
                     logging.info("Found official English subtitles")
-                    return self._format_transcript(transcript.fetch())
+                    fetched = transcript.fetch()
+                    # Ensure formatter receives a list of dicts
+                    fetched_list = list(fetched) if not isinstance(fetched, list) else fetched
+                    return self._format_transcript(fetched_list)
             except Exception:
                 logging.debug("Official English subtitles not found or error occurred.")
-                pass
 
             # Priority 2: Auto-generated English
             try:
                 transcript = transcript_list.find_generated_transcript(["en"])
                 logging.info("Found auto-generated English subtitles")
-                return self._format_transcript(transcript.fetch())
+                fetched = transcript.fetch()
+                fetched_list = list(fetched) if not isinstance(fetched, list) else fetched
+                return self._format_transcript(fetched_list)
             except Exception:
                 logging.debug("Auto-generated English subtitles not found or error occurred.")
-                pass
 
             # Priority 3: Auto-translated English
             try:
-                # Get any available transcript and translate to English
                 for transcript in transcript_list:
                     try:
                         translated = transcript.translate("en")
                         logging.info(
                             f"Found subtitles in {transcript.language_code}, translated to English"
                         )
-                        return self._format_transcript(translated.fetch())
+                        fetched = translated.fetch()
+                        fetched_list = list(fetched) if not isinstance(fetched, list) else fetched
+                        return self._format_transcript(fetched_list)
                     except Exception:
                         logging.debug(f"Could not translate {transcript.language_code} to English.")
                         continue
             except Exception:
                 logging.debug("No translatable subtitles found or error occurred during translation.")
-                pass
 
             raise Exception("No suitable English subtitles found")
 
         except Exception as e:
             logging.error(f"Error getting subtitles: {str(e)}")
             raise Exception(f"Error getting subtitles: {str(e)}")
+
+    def extract_playlist_video_ids(self, playlist_url: str) -> List[str]:
+        """
+        Extract unique video IDs from a YouTube playlist HTML without API keys.
+
+        Strategy:
+        - Download playlist page HTML.
+        - Regex-scan for watch?v=VIDEO_ID (11-char ID).
+        - Deduplicate while preserving order.
+        """
+        if not self.is_playlist_url(playlist_url):
+            raise ValueError("URL is not a playlist URL")
+
+        headers = {
+            "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+                          "(KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+        }
+        resp = requests.get(playlist_url, headers=headers, timeout=30)
+        resp.raise_for_status()
+        html = resp.text
+
+        pattern = re.compile(r"watch\?v=([A-Za-z0-9_-]{11})")
+        seen: Set[str] = set()
+        ordered: List[str] = []
+        for m in pattern.finditer(html):
+            vid = m.group(1)
+            if vid not in seen:
+                seen.add(vid)
+                ordered.append(vid)
+
+        if not ordered:
+            logging.warning("No video IDs found in playlist HTML. The page might require JS to render items.")
+        return ordered
+
+    def process_playlist(self, playlist_url: str) -> List[str]:
+        """
+        Process a playlist URL by extracting each video's subtitles, summarizing,
+        and saving individual markdown files per video.
+
+        Returns a list of paths to generated files.
+        """
+        logging.info("Detected playlist URL. Extracting video IDs...")
+        video_ids = self.extract_playlist_video_ids(playlist_url)
+        logging.info(f"Found {len(video_ids)} video IDs in playlist")
+
+        output_files: List[str] = []
+        for idx, vid in enumerate(video_ids, 1):
+            try:
+                logging.info(f"Processing video {idx}/{len(video_ids)}: {vid}")
+                video_url = f"https://www.youtube.com/watch?v={vid}"
+                out_path = self.process_video(video_url)
+                output_files.append(out_path)
+            except Exception as e:
+                logging.error(f"Failed to process video {vid}: {e}")
+                continue
+
+        return output_files
 
     def _format_transcript(self, transcript_data: List[Dict]) -> str:
         """
@@ -252,44 +332,40 @@ Create a well-structured summary optimized for learning, using bullet points and
             #     temperature=0.3
             # )
 
+            # from openai import OpenAI
+
+            # client = OpenAI(
+            #     base_url="http://localhost:11434/v1",
+            #     api_key="ollama",
+            # )
+
+            # response = client.chat.completions.create(
+            #     model="llama3.2:3b",
+            #     messages=[
+            #         {"role": "system", "content": system_prompt},
+            #         {"role": "user", "content": user_prompt},
+            #     ],
+            # )
+
             from openai import OpenAI
 
             client = OpenAI(
-                base_url="http://localhost:11434/v1",
-                api_key="ollama",
+                base_url="https://openrouter.ai/api/v1",
+                api_key=OPENROUTER_API_KEY,
             )
 
             response = client.chat.completions.create(
-                model="qwen2.5:3b",
+                extra_headers={
+                    "HTTP-Referer": "https://nichsedge.github.io/digital-garden",
+                    "X-Title": "Youtube Summarizer",
+                },
+                extra_body={},
+                model="openai/gpt-oss-20b:free",
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt},
                 ],
             )
-
-            # from openai import OpenAI
-
-            # client = OpenAI(
-            # base_url="https://openrouter.ai/api/v1",
-            # api_key=OPENROUTER_API_KEY,
-            # )
-
-            # response = client.chat.completions.create(
-            # extra_headers={
-            #     "HTTP-Referer": "https://ichsanulamal.github.io/digital-garden", # Optional. Site URL for rankings on openrouter.ai.
-            #     "X-Title": "Youtube Summarizer", # Optional. Site title for rankings on openrouter.ai.
-            # },
-            # extra_body={},
-            # # model="meta-llama/llama-3.3-70b-instruct:free",
-            # model="qwen/qwen3-8b:free",
-            # # model="mistralai/mistral-7b-instruct:free",
-            # # model="deepseek/deepseek-r1-0528-qwen3-8b:free",
-            # # model="nousresearch/deephermes-3-llama-3-8b-preview:free",
-            # messages=[
-            #         {"role": "system", "content": system_prompt},
-            #         {"role": "user", "content": user_prompt},
-            #     ],
-            # )
 
             return response.choices[0].message.content.strip()
 
@@ -352,7 +428,7 @@ Create a well-structured summary optimized for learning, using bullet points and
         try:
             # This is a simple method - for production, consider using YouTube Data API
             url = f"https://www.youtube.com/watch?v={video_id}"
-            response = requests.get(url)
+            response = requests.get(url, timeout=20)
 
             # Extract title from HTML (basic regex)
             title_match = re.search(r"<title>([^<]+)</title>", response.text)
@@ -361,7 +437,7 @@ Create a well-structured summary optimized for learning, using bullet points and
                 # Remove " - YouTube" suffix
                 title = re.sub(r" - YouTube$", "", title)
                 return title
-        except:
+        except Exception:
             pass
 
         return "YouTube Video Summary"
@@ -414,7 +490,7 @@ Create a well-structured summary optimized for learning, using bullet points and
             final_document = self.merge_summaries(summaries, video_title)
 
             # Save to file
-            output_file = sanitize_filename(video_title) + ".md"
+            output_file = './output/' + sanitize_filename(video_title) + ".md"
             logging.info(f"Saving to file...")
             with open(output_file, "w", encoding="utf-8") as f:
                 f.write(final_document)
@@ -433,25 +509,26 @@ def main():
     """
     # Initialize with your OpenAI API key
     api_key = os.getenv("OPENAI_API_KEY")
-    if not api_key:
-        api_key = input("Enter your OpenAI API key: ")
 
     summarizer = YouTubeSubtitleSummarizer(api_key)
 
-    # Example usage
-    video_url = input("Enter YouTube video URL: ")
+    # Input can be a video or playlist URL
+    # url = "https://www.youtube.com/watch?v=xUdCSq4W1Kk&t=33s"
+    url = input("Enter YouTube video or playlist URL: ").strip()
 
     try:
-        result_file = summarizer.process_video(video_url)
-        logging.info(f"🎉 Success! Your summary is ready: {result_file}")
-
-        # Optionally display the first few lines
-        with open(result_file, "r", encoding="utf-8") as f:
-            preview = f.read()[:500]
-            logging.info(f"\nPreview:\n{preview}...")
-
+        if summarizer.is_playlist_url(url):
+            outputs = summarizer.process_playlist(url)
+            logging.info(f"🎉 Success! Generated {len(outputs)} files")
+        else:
+            result_file = summarizer.process_video(url)
+            logging.info(f"🎉 Success! Your summary is ready: {result_file}")
+            # Optionally display the first few lines
+            with open(result_file, "r", encoding="utf-8") as f:
+                preview = f.read()[:500]
+                logging.info(f"\nPreview:\n{preview}...")
     except Exception as e:
-        logging.error(f"Failed to process video: {str(e)}")
+        logging.error(f"Failed to process input: {str(e)}")
 
 
 if __name__ == "__main__":

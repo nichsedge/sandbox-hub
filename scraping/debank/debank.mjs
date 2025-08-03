@@ -1,12 +1,57 @@
-const { chromium } = require('playwright');
-const fs = require('fs');
-const path = require('path');
+import { chromium } from 'playwright';
+import fs from 'fs/promises';
+import path from 'path';
 
-require('dotenv').config();
+import 'dotenv/config';
 const EVM_ADDRESS = process.env.EVM_ADDRESS || "your_default_address_here";
 
 const PROFILE_URL = `https://debank.com/profile/${EVM_ADDRESS}`;
-const OUTPUT_PATH = path.join(__dirname, 'debank_raw.json');
+
+const getCurrentDate = () => {
+    const today = new Date();
+    const year = today.getFullYear();
+    const month = String(today.getMonth() + 1).padStart(2, '0');
+    const day = String(today.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+};
+
+const currentDate = getCurrentDate();
+const OUTPUT_PATH = `/home/al/Projects/.data/portfolio/${currentDate}_raw_debank.json`;
+const dirname = path.dirname(OUTPUT_PATH);
+
+async function ensureDirectoryExists() {
+  try {
+    // This will create the directory if it doesn't exist.
+    // It will do nothing if it already exists.
+    // It will create parent directories if needed due to { recursive: true }.
+    await fs.mkdir(dirname, { recursive: true });
+    console.log(`Directory '${dirname}' exists or was created.`);
+  } catch (err) {
+    // This catch block will only execute for actual errors
+    // (e.g., lack of permissions), not if the directory exists.
+    console.error(`Failed to create directory:`, err);
+  }
+}
+ensureDirectoryExists();
+
+async function autoScroll(page) {
+  await page.evaluate(async () => {
+    await new Promise((resolve) => {
+      let totalHeight = 0;
+      const distance = 500;
+      const timer = setInterval(() => {
+        const scrollHeight = document.body.scrollHeight;
+        window.scrollBy(0, distance);
+        totalHeight += distance;
+
+        if (totalHeight >= scrollHeight) {
+          clearInterval(timer);
+          resolve();
+        }
+      }, 300);
+    });
+  });
+}
 
 async function extractAssetData(page) {
   return await page.evaluate(() => {
@@ -29,7 +74,7 @@ async function extractAssetData(page) {
 }
 
 async function extractProfileData(page) {
-  await page.waitForSelector("div[class*='HeaderInfo_totalAssetInner']", { timeout: 10000 });
+  // await page.waitForSelector("div[class*='HeaderInfo_totalAssetInner']", { timeout: 10000 });
   return await page.evaluate(() => {
     const data = {};
     const items = document.querySelectorAll("div[class*='HeaderInfo_infoItem']");
@@ -44,7 +89,7 @@ async function extractProfileData(page) {
 }
 
 async function extractWallets(page) {
-  await page.waitForSelector("div[class*='TokenWallet_table']", { timeout: 10000 });
+  // await page.waitForSelector("div[class*='TokenWallet_table']", { timeout: 10000 });
 
   return await page.evaluate(() => {
     const table = document.querySelector("div[class*='TokenWallet_table']");
@@ -87,7 +132,7 @@ async function extractWallets(page) {
 
 
 async function extractProtocols(page) {
-  await page.waitForSelector('div[class^="Project_project__"]', { timeout: 10000 });
+  // await page.waitForSelector('div[class^="Project_project__"]', { timeout: 10000 });
 
   return await page.$$eval('div[class^="Project_project__"]', (projects) => {
     return projects.map((project) => {
@@ -130,7 +175,14 @@ async function extractProtocols(page) {
   const browser = await chromium.launch({ headless: false });
   const page = await browser.newPage();
   await page.goto(PROFILE_URL, { waitUntil: "domcontentloaded" });
-  await page.waitForTimeout(5000);
+  // Wait for any stable element that signals page structure is ready
+  await page.waitForSelector("div[class*='HeaderInfo']", { timeout: 20000 });
+
+  // Scroll to load lazy content
+  await autoScroll(page);
+
+  // Give it a short pause for final requests to complete
+  await page.waitForTimeout(2000);
 
   const assetData = await extractAssetData(page);
   const profileData = await extractProfileData(page);
@@ -146,7 +198,7 @@ async function extractProtocols(page) {
     profileUrl: PROFILE_URL,
   };
 
-  fs.writeFileSync(OUTPUT_PATH, JSON.stringify(mergedData, null, 2));
+  await fs.writeFile(OUTPUT_PATH, JSON.stringify(mergedData, null, 2));
   console.log(`Data saved to ${OUTPUT_PATH}`);
 
   await browser.close();

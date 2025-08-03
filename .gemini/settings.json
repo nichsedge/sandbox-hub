@@ -1,0 +1,11 @@
+{
+	"mcpServers": {
+        "ksei": {
+			"type": "stdio",
+			"command": "uvx",
+			"args": [
+				"ksei-mcp@latest"
+			]
+		}
+    }
+}
