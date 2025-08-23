@@ -33,7 +33,7 @@ def _to_serializable(val):
     except Exception:
         return str(val)
 
-serializable_totals = {symbol: _to_serializable(amount) for symbol, amount in totals.items()}
+serializable_totals = {symbol: _to_serializable(amount) for symbol, amount in totals.items() if _to_serializable(amount) > 0}
 
 output = {
     "exchange": "binance",

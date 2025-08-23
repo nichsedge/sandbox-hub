@@ -132,8 +132,6 @@ async function extractWallets(page) {
 
 
 async function extractProtocols(page) {
-  // await page.waitForSelector('div[class^="Project_project__"]', { timeout: 10000 });
-
   return await page.$$eval('div[class^="Project_project__"]', (projects) => {
     return projects.map((project) => {
       const nameElem = project.querySelector('span[class^="ProjectTitle_protocolLink"]');
@@ -142,18 +140,21 @@ async function extractProtocols(page) {
       const protocolName = nameElem?.innerText.trim() || null;
       const usdValue = usdValueElem?.innerText.trim() || null;
 
-      // Extract headers
-      const headerElems = project.querySelectorAll('div[class^="table_header__"] div > span');
-      const headers = Array.from(headerElems).map((el) => el.innerText.trim());
+      // Extract headers (skip empty placeholder)
+      const headerElems = project.querySelectorAll('div[class^="table_header__"] > div > span');
+      const headers = Array.from(headerElems)
+        .map((el) => el.innerText.trim())
+        .filter((txt) => txt !== "");
 
       // Extract rows
       const rowElems = project.querySelectorAll('div[class^="table_contentRow__"]');
       const rows = Array.from(rowElems).map((row) => {
-        const cols = row.querySelectorAll('div > span');
-        return Array.from(cols).map((col) => col.innerText.trim());
+        // take direct child divs = each cell
+        const cells = row.querySelectorAll(':scope > div');
+        return Array.from(cells).map((cell) => cell.innerText.trim());
       });
 
-      // Combine headers with values
+      // Merge headers with values
       const data = rows.map((values) => {
         const obj = {};
         headers.forEach((key, i) => {
@@ -170,6 +171,7 @@ async function extractProtocols(page) {
     });
   });
 }
+
 
 (async () => {
   const browser = await chromium.launch({ headless: false });

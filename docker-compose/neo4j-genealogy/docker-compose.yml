@@ -1,0 +1,30 @@
+version: '3.8'
+
+services:
+  neo4j-genealogy:
+    image: neo4j:latest
+    container_name: neo4j-genealogy
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - neo4j_genealogy_data:/data
+      - neo4j_genealogy_logs:/logs
+      - neo4j_genealogy_config:/config
+      - neo4j_genealogy_plugins:/plugins
+      - ./neo4j.conf:/etc/neo4j/neo4j.conf
+    ports:
+      - "8474:7474"
+      - "8687:7687"
+    networks:
+      - neo4j_genealogy_network
+
+volumes:
+  neo4j_genealogy_data:
+  neo4j_genealogy_logs:
+  neo4j_genealogy_config:
+  neo4j_genealogy_plugins:
+
+networks:
+  neo4j_genealogy_network:
+    driver: bridge

@@ -1,9 +1,14 @@
 from pypdf import PdfReader, PdfWriter
 
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+
 # Input and output file paths
-input_pdf_path = "SOA_23AA43507_JUL2025.PDF"
-output_pdf_path = "dec_SOA_23AA43507_JUL2025.PDF"
-password = "19052001"
+input_pdf_path = os.getenv("INPUT_PDF_PATH")
+output_pdf_path = os.getenv("OUTPUT_PDF_PATH")
+password = os.getenv("PASSWORD")
 
 # Open the encrypted PDF
 reader = PdfReader(input_pdf_path)
