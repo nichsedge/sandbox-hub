@@ -2,51 +2,162 @@ import ccxt
 import json
 import os
 from datetime import datetime
+from dotenv import load_dotenv
 
-# Initialize Binance exchange
-binance = ccxt.binance({
-    'apiKey': os.getenv('BINANCE_API_KEY'),
-    'secret': os.getenv('BINANCE_SECRET'),
-    'enableRateLimit': True,  # helps avoid being rate-limited
-    'options': {'defaultType': 'spot'}  # or 'future', 'margin' if needed
-})
+# Load environment variables from .env file
+load_dotenv()
 
-tko = ccxt.tokocrypto({
-    'apiKey': os.getenv('TKO_API_KEY'),
-    'secret': os.getenv('TKO_SECRET'),
-    'enableRateLimit': True,  # helps avoid being rate-limited
-    'options': {'defaultType': 'spot'}  # or 'future', 'margin' if needed
-})
-
-# Fetch account balance
-balance = binance.fetch_balance()
-
-# balance['total'] to json
-totals = balance.get('total', {}) or {}
-
-# Convert any non-JSON-serializable values (e.g., Decimal) to float
-def _to_serializable(val):
+def get_binance_balance(api_key, secret):
+    if not api_key or not secret:
+        print("Skipping Binance: API keys not found.")
+        return {}
+    
     try:
-        if isinstance(val, (str, int, float, bool)) or val is None:
-            return val
-        return float(val)
-    except Exception:
-        return str(val)
+        exchange = ccxt.binance({
+            'apiKey': api_key,
+            'secret': secret,
+            'enableRateLimit': True,
+        })
+        
+        balances = {}
+        
+        # 1. Fetch Spot Balance
+        spot_balance = exchange.fetch_balance({'type': 'spot'})
+        for symbol, total in spot_balance.get('total', {}).items():
+            if total > 0:
+                balances[symbol] = balances.get(symbol, 0) + total
+        
+        # 2. Fetch Earn/Simple Earn Balance (Flexible & Locked)
+        # Note: CCXT uses 'sapi' for these Binance-specific endpoints
+        try:
+            # Flexible
+            flexible = exchange.sapi_get_simple_earn_flexible_position()
+            for item in flexible.get('rows', []):
+                symbol = item['asset']
+                total = float(item['totalAmount'])
+                if total > 0:
+                    balances[symbol] = balances.get(symbol, 0) + total
+            
+            # Locked
+            locked = exchange.sapi_get_simple_earn_locked_position()
+            for item in locked.get('rows', []):
+                symbol = item['asset']
+                total = float(item['totalAmount'])
+                if total > 0:
+                    balances[symbol] = balances.get(symbol, 0) + total
+        except Exception as e:
+            print(f"Note: Could not fetch Binance Earn balances: {e}")
 
-serializable_totals = {symbol: _to_serializable(amount) for symbol, amount in totals.items() if _to_serializable(amount) > 0}
+        return balances
+    except Exception as e:
+        print(f"Error fetching balance from Binance: {e}")
+        return {}
 
-output = {
-    "exchange": "binance",
-    "timestamp": datetime.utcnow().isoformat() + "Z",
-    "totals": serializable_totals
-}
+def get_exchange_balance(exchange_id, api_key, secret):
+    if not api_key or not secret:
+        print(f"Skipping {exchange_id}: API keys not found.")
+        return {}
+    
+    try:
+        exchange_class = getattr(ccxt, exchange_id)
+        exchange = exchange_class({
+            'apiKey': api_key,
+            'secret': secret,
+            'enableRateLimit': True,
+        })
+        balance = exchange.fetch_balance()
+        return balance.get('total', {}) or {}
+    except Exception as e:
+        print(f"Error fetching balance from {exchange_id}: {e}")
+        return {}
 
-# Determine output path (defaults to current dir)
-out_dir = os.getenv("CRYPTO_OUT_DIR", ".")
-os.makedirs(out_dir, exist_ok=True)
-out_path = os.path.join(out_dir, "balance_totals.json")
+def get_prices_usd(symbols, exchange):
+    prices = {
+        'USDT': 1.0,
+        'BUSD': 1.0,
+        'USDC': 1.0,
+        'DAI': 1.0,
+        'IDRT': 0.000064, # Approximate if needed
+    }
+    
+    # Try to fetch all tickers at once to be efficient
+    try:
+        tickers = exchange.fetch_tickers([f"{s}/USDT" for s in symbols if s not in prices])
+        for symbol_pair, ticker in tickers.items():
+            base = symbol_pair.split('/')[0]
+            prices[base] = float(ticker['last'])
+    except:
+        # Fallback to individual fetches if fetch_tickers fails
+        for symbol in symbols:
+            if symbol in prices: continue
+            try:
+                ticker = exchange.fetch_ticker(f"{symbol}/USDT")
+                prices[symbol] = float(ticker['last'])
+            except:
+                try:
+                    ticker = exchange.fetch_ticker(f"{symbol}/BUSD")
+                    prices[symbol] = float(ticker['last'])
+                except:
+                    pass
+    return prices
 
-with open(out_path, "w", encoding="utf-8") as f:
-    json.dump(output, f, ensure_ascii=False, indent=2)
+def main():
+    # Aggregate balances from multiple sources
+    all_balances = {}
+    
+    # Binance (Spot + Earn)
+    binance_balances = get_binance_balance(os.getenv('BINANCE_API_KEY'), os.getenv('BINANCE_SECRET'))
+    for symbol, amount in binance_balances.items():
+        all_balances[symbol] = all_balances.get(symbol, 0) + amount
+        
+    # Tokocrypto (Spot)
+    tko_balances = get_exchange_balance('tokocrypto', os.getenv('TKO_API_KEY'), os.getenv('TKO_SECRET'))
+    for symbol, amount in tko_balances.items():
+        all_balances[symbol] = all_balances.get(symbol, 0) + amount
 
-print(f"Wrote totals to {out_path}")
+    if not all_balances:
+        print("No balances found. Check your API keys and .env file.")
+        return
+
+    # Price Discovery
+    price_exchange = ccxt.binance()
+    symbols = list(all_balances.keys())
+    prices_usd = get_prices_usd(symbols, price_exchange)
+    
+    # Calculate values
+    assets_with_value = []
+    total_usd = 0
+
+    for symbol, amount in all_balances.items():
+        price_usd = prices_usd.get(symbol, 0)
+        val_usd = amount * price_usd
+        
+        if val_usd > 0.01: # Filter out dust
+            assets_with_value.append({
+                "symbol": symbol,
+                "amount": amount,
+                "price_usd": price_usd,
+                "value_usd": val_usd
+            })
+            total_usd += val_usd
+
+    assets_with_value.sort(key=lambda x: x['value_usd'], reverse=True)
+
+    output = {
+        "timestamp": datetime.utcnow().isoformat() + "Z",
+        "total_usd": total_usd,
+        "assets": assets_with_value
+    }
+
+    out_dir = os.getenv("CRYPTO_OUT_DIR", ".")
+    os.makedirs(out_dir, exist_ok=True)
+    out_path = os.path.join(out_dir, "balance_totals.json")
+
+    with open(out_path, "w", encoding="utf-8") as f:
+        json.dump(output, f, ensure_ascii=False, indent=2)
+
+    print(f"Wrote {len(assets_with_value)} assets to {out_path}")
+    print(f"Total Portfolio Value: ${total_usd:,.2f}")
+
+if __name__ == "__main__":
+    main()
