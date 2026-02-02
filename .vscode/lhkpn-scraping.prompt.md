@@ -1,4 +1,4 @@
-I need a Python script to scrape public LHKPN data from `https://elhkpn.kpk.go.id/`. The website uses dynamic JavaScript loading, CSRF tokens, and various anti-bot measures, including frequent redirects and pop-ups. I would prefer a solution using **`nodriver`** or **`puppeteer`**.
+I need a Python script to scrape public LHKPN data from `https://elhkpn.kpk.go.id/`. The website uses dynamic JavaScript loading, CSRF tokens, and various anti-bot measures, including frequent redirects and pop-ups.
 
 Here is a step-by-step breakdown of the process:
 
@@ -23,3 +23,5 @@ Here is a step-by-step breakdown of the process:
     * Make an HTTP request to this `data-harta` URL to collect the JSON data.
 
 The final output should be a collection of all JSON objects retrieved from the `data-harta` URLs for the specified search query, across all pages of the results.
+
+it would be nice if you find API.
