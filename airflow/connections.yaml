@@ -1,0 +1,19 @@
+ichsanul_dev:
+  conn_type: google_cloud_platform
+  description: ''
+  extra: '{"key_path": "/home/al/projects/creds/ichsanul-dev-cc6f799c9121.json", "num_retries":
+    5}'
+  host: ''
+  login: ''
+  password: null
+  port: null
+  schema: ''
+pg_local:
+  conn_type: postgres
+  description: ''
+  extra: ''
+  host: 127.0.0.1
+  login: postgres
+  password: postgres
+  port: 5432
+  schema: postgres
