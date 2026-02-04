@@ -1,9 +1,0 @@
-{
-  "dependencies": {
-    "dotenv": "^17.2.1",
-    "playwright": "^1.54.2"
-  },
-  "devDependencies": {
-    "npm": "^11.5.2"
-  }
-}
