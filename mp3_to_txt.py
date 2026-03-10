@@ -37,10 +37,15 @@ for i in range(num_chunks):
 
     with open(chunk_path, "rb") as f:
         t = client.audio.transcriptions.create(
-            model="whisper-1", # Note: 'whisper-1' is the standard model name
+            model="gpt-4o-mini-transcribe", # Note: 'whisper-1' is the standard model name
             file=f,
         )
     transcript_text.append(t.text)
 
 full_text = "\n\n".join(transcript_text)
-print(full_text)
+
+output_txt_path = audio_path.with_suffix(".txt")
+with open(output_txt_path, "w", encoding="utf-8") as f:
+    f.write(full_text)
+
+print(f"Transcript successfully saved to {output_txt_path}")
