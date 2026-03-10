@@ -5,6 +5,7 @@ import email
 import os
 from dotenv import load_dotenv
 
+
 # --- Define your Pydantic model ---
 class EmailMessage(BaseModel):
     id: str
@@ -12,6 +13,7 @@ class EmailMessage(BaseModel):
     from_: str  # Can't use 'from' since it's a reserved keyword in Python
     body: str
     messageId: str
+
 
 load_dotenv()
 
@@ -41,20 +43,25 @@ for email_id in email_ids:
             body = ""
             if msg.is_multipart():
                 for part in msg.walk():
-                    if part.get_content_type() == "text/plain" and not part.get_filename():
+                    if (
+                        part.get_content_type() == "text/plain"
+                        and not part.get_filename()
+                    ):
                         body = part.get_payload(decode=True).decode(errors="replace")
                         break
             else:
                 body = msg.get_payload(decode=True).decode(errors="replace")
 
             # Add to results list as Pydantic object
-            results.append(EmailMessage(
-                id=email_id.decode(),
-                subject=msg.get("Subject", ""),
-                from_=msg.get("From", ""),
-                body=body,
-                messageId=msg.get("Message-ID", "")
-            ))
+            results.append(
+                EmailMessage(
+                    id=email_id.decode(),
+                    subject=msg.get("Subject", ""),
+                    from_=msg.get("From", ""),
+                    body=body,
+                    messageId=msg.get("Message-ID", ""),
+                )
+            )
 
 mail.logout()
 

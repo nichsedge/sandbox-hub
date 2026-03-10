@@ -1,5 +1,6 @@
 import speedtest
 
+
 def run_speedtest():
     s = speedtest.Speedtest()
 
@@ -27,6 +28,7 @@ def run_speedtest():
     print(f"Result image: {result_url}")
 
     return s.results.dict()  # Full results if needed
+
 
 if __name__ == "__main__":
     run_speedtest()

@@ -116,7 +116,9 @@ class EmailTicketListener:
     def start(self):
         self.client.login(IMAP_USER, IMAP_PASS)
         self.client.select_folder("INBOX")
-        logging.info("IMAP connected and folder selected. Listening for UNSEEN [TICKET] mails...")
+        logging.info(
+            "IMAP connected and folder selected. Listening for UNSEEN [TICKET] mails..."
+        )
 
         try:
             while True:
@@ -125,17 +127,20 @@ class EmailTicketListener:
                 self.client.idle_done()
 
                 if responses:
-                    uids = self.client.search(['UNSEEN'])
+                    uids = self.client.search(["UNSEEN"])
                     for uid in uids:
-                        fetch_data = self.client.fetch(uid, ['BODY.PEEK[]'])
-                        raw = fetch_data[uid][b'BODY[]']
+                        fetch_data = self.client.fetch(uid, ["BODY.PEEK[]"])
+                        raw = fetch_data[uid][b"BODY[]"]
                         msg = email.message_from_bytes(raw)
                         subject = decode_mime_words(msg.get("Subject", ""))
                         from_addr = decode_mime_words(msg.get("From", ""))
                         body = extract_plain_text(msg)
 
                         if "[TICKET]" not in subject.upper():
-                            logging.debug("Skipping non-ticket email (leaving unread): %s", subject)
+                            logging.debug(
+                                "Skipping non-ticket email (leaving unread): %s",
+                                subject,
+                            )
                             continue
 
                         # Simple title from subject
@@ -174,7 +179,9 @@ class TicketWatcher:
         self.last_seen = {}
 
     def start(self):
-        logging.info("Ticket watcher started with poll interval %s s", self.poll_interval)
+        logging.info(
+            "Ticket watcher started with poll interval %s s", self.poll_interval
+        )
         while True:
             try:
                 tickets = list_tickets_api()

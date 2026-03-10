@@ -55,9 +55,9 @@ def clean(df):
     )
 
     df["genres"] = df["GENRE"].apply(
-        lambda x: x.replace("\n", "").strip().split(", ")
-        if isinstance(x, str)
-        else None
+        lambda x: (
+            x.replace("\n", "").strip().split(", ") if isinstance(x, str) else None
+        )
     )
 
     df["votes"] = pd.to_numeric(df["VOTES"].str.replace(",", ""), errors="coerce")
