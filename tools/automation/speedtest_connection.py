@@ -1,3 +1,9 @@
+# /// script
+# requires-python = ">=3.13"
+# dependencies = [
+#     "speedtest>=0.0.1",
+# ]
+# ///
 import speedtest
 
 

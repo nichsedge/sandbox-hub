@@ -1,3 +1,11 @@
+# /// script
+# requires-python = ">=3.13"
+# dependencies = [
+#     "beautifulsoup4>=4.14.3",
+#     "deep-translator>=1.11.4",
+#     "requests>=2.33.1",
+# ]
+# ///
 import requests
 import os
 import time

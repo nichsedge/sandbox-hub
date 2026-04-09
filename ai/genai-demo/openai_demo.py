@@ -1,3 +1,9 @@
+# /// script
+# requires-python = ">=3.13"
+# dependencies = [
+#     "openai>=2.31.0",
+# ]
+# ///
 from openai import OpenAI
 
 client = OpenAI()

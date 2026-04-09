@@ -1,3 +1,12 @@
+# /// script
+# requires-python = ">=3.13"
+# dependencies = [
+#     "beautifulsoup4>=4.14.3",
+#     "numpy>=2.4.4",
+#     "openpyxl>=3.1.5",
+#     "pandas>=3.0.2",
+# ]
+# ///
 from bs4 import BeautifulSoup as bs
 
 html_page = """

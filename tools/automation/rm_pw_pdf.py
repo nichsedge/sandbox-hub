@@ -1,3 +1,10 @@
+# /// script
+# requires-python = ">=3.13"
+# dependencies = [
+#     "pypdf>=6.9.2",
+#     "python-dotenv>=1.2.2",
+# ]
+# ///
 from pypdf import PdfReader, PdfWriter
 
 import os

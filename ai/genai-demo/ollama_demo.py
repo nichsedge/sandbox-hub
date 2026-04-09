@@ -1,3 +1,9 @@
+# /// script
+# requires-python = ">=3.13"
+# dependencies = [
+#     "ollama>=0.6.1",
+# ]
+# ///
 from ollama import chat
 
 # stream = chat(

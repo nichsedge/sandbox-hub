@@ -1,3 +1,10 @@
+# /// script
+# requires-python = ">=3.13"
+# dependencies = [
+#     "nbformat>=5.10.4",
+# ]
+# ///
+
 # remove
 # find . -type d -name '__MACOSX' -exec rm -rf {} +
 

@@ -1,3 +1,11 @@
+# /// script
+# requires-python = ">=3.13"
+# dependencies = [
+#     "pandas>=3.0.2",
+#     "psycopg2-binary>=2.9.11",
+#     "sqlalchemy>=2.0.49",
+# ]
+# ///
 import pandas as pd
 import re
 from sqlalchemy import create_engine

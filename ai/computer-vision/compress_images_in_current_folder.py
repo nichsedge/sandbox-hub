@@ -1,3 +1,9 @@
+# /// script
+# requires-python = ">=3.13"
+# dependencies = [
+#     "pillow>=12.2.0",
+# ]
+# ///
 import os
 from PIL import Image
 

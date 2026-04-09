@@ -1,3 +1,11 @@
+# /// script
+# requires-python = ">=3.13"
+# dependencies = [
+#     "praw>=7.8.1",
+#     "psaw>=0.1.0",
+#     "python-dotenv>=1.2.2",
+# ]
+# ///
 import os
 from dotenv import load_dotenv
 
