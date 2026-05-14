@@ -1,14 +1,14 @@
 # /// script
 # requires-python = ">=3.13"
 # dependencies = [
-#     "speedtest>=0.0.1",
+#     "speedtest-cli>=2.1.3",
 # ]
 # ///
 import speedtest
 
 
 def run_speedtest():
-    s = speedtest.Speedtest()
+    s = speedtest.Speedtest(secure=True)
 
     # Optional: get specific servers (empty list means all available)
     s.get_servers([])
