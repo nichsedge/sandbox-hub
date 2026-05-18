@@ -75,6 +75,7 @@ A personal sandbox of Python scripts and notebooks spanning **data engineering**
 | [`reset_ipynb.py`](./reset_ipynb.py) | Clear all outputs from Jupyter notebooks |
 | [`rm_pw_pdf.py`](./rm_pw_pdf.py) | Remove password protection from PDF files |
 | [`speedtest_connection.py`](./speedtest_connection.py) | Run an internet speed test from the CLI |
+| [`tools/automation/fatsecret_barcode.py`](./tools/automation/fatsecret_barcode.py) | Fetch food nutrition details from FatSecret by barcode (supports local .env credentials) |
 
 ---
 
