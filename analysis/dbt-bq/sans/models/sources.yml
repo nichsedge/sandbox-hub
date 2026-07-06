@@ -1,0 +1,6 @@
+version: 2
+
+sources:
+  - name: dev
+    tables:
+      - name: stg_orders
