@@ -1,0 +1,11 @@
+[sqlfluff]
+dialect = bigquery
+max_line_length = 120
+ignore = .venv,target,logs,dbt_packages
+exclude_rules = LT02
+
+[sqlfluff:rules:capitalisation.keywords]
+capitalisation_policy = upper
+
+[sqlfluff:rules:capitalisation.identifiers]
+capitalisation_policy = lower

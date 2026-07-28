@@ -21,7 +21,12 @@ Pada dbt-BigQuery, strategi `insert_overwrite` memiliki dua mode untuk menentuka
 
 ## 2. Eksperimen: Mereproduksi Masalah
 
-Mari kita lakukan simulasi sederhana menggunakan data transaksi pesanan untuk melihat bagaimana masalah ini terjadi.
+Mari kita lakukan simulasi sederhana menggunakan data transaksi pesanan untuk melihat bagaimana masalah ini terjadi. 
+
+> [!TIP]
+> **Ingin mencoba langsung di BigQuery Console tanpa setup dbt?**  
+> Anda bisa melihat dan menjalankan skrip SQL lengkap yang langsung mereproduksi bug ini di [GitHub Gist](https://gist.github.com/5460a85a187f0aa34d6e9509b7746bbe#file-reproduce_dbt_bq_silent_bug-sql).
+
 
 ### Langkah 1: Persiapan Data Staging
 Pertama, buat tabel staging untuk mensimulasikan data transaksi masuk:
@@ -35,23 +40,24 @@ CREATE OR REPLACE TABLE dev.stg_orders (
 );
 ```
 
-Kita masukkan data transaksi untuk 3 hari terakhir (H-3 hingga H-1) menggunakan script data generator [generate_orders.py](file:///home/al/Projects/sandbox-hub/analysis/dbt-bq/generate_orders.py):
+Kita masukkan data transaksi untuk 3 hari terakhir (H-3 hingga H-1) menggunakan script data generator `generate_orders.py` (tersedia di [GitHub Gist](https://gist.github.com/5460a85a187f0aa34d6e9509b7746bbe#file-generate_orders-py)):
 ```sql
 TRUNCATE TABLE dev.stg_orders;
-INSERT INTO dev.stg_orders VALUES
-(1, DATE '2026-07-03', TIMESTAMP '2026-07-06 20:12:00', 101),
-(2, DATE '2026-07-03', TIMESTAMP '2026-07-06 20:12:00', 102),
-(3, DATE '2026-07-03', TIMESTAMP '2026-07-06 20:12:00', 103),
-(4, DATE '2026-07-04', TIMESTAMP '2026-07-06 20:12:00', 104),
-(5, DATE '2026-07-04', TIMESTAMP '2026-07-06 20:12:00', 105),
-(6, DATE '2026-07-04', TIMESTAMP '2026-07-06 20:12:00', 106),
-(7, DATE '2026-07-05', TIMESTAMP '2026-07-06 20:12:00', 107),
-(8, DATE '2026-07-05', TIMESTAMP '2026-07-06 20:12:00', 108),
-(9, DATE '2026-07-05', TIMESTAMP '2026-07-06 20:12:00', 109);
+INSERT INTO dev.stg_orders (order_id, order_date, updated_at, amount) VALUES
+(1, DATE_SUB(CURRENT_DATE(), INTERVAL 3 DAY), CURRENT_TIMESTAMP(), 101),
+(2, DATE_SUB(CURRENT_DATE(), INTERVAL 3 DAY), CURRENT_TIMESTAMP(), 102),
+(3, DATE_SUB(CURRENT_DATE(), INTERVAL 3 DAY), CURRENT_TIMESTAMP(), 103),
+(4, DATE_SUB(CURRENT_DATE(), INTERVAL 2 DAY), CURRENT_TIMESTAMP(), 104),
+(5, DATE_SUB(CURRENT_DATE(), INTERVAL 2 DAY), CURRENT_TIMESTAMP(), 105),
+(6, DATE_SUB(CURRENT_DATE(), INTERVAL 2 DAY), CURRENT_TIMESTAMP(), 106),
+(7, DATE_SUB(CURRENT_DATE(), INTERVAL 1 DAY), CURRENT_TIMESTAMP(), 107),
+(8, DATE_SUB(CURRENT_DATE(), INTERVAL 1 DAY), CURRENT_TIMESTAMP(), 108),
+(9, DATE_SUB(CURRENT_DATE(), INTERVAL 1 DAY), CURRENT_TIMESTAMP(), 109);
+
 ```
 
 ### Langkah 2: Membuat Model dbt Awal (Dynamic Partitioning)
-Kita buat model dbt bernama [fact_orders_static.sql](file:///home/al/Projects/sandbox-hub/analysis/dbt-bq/sans/models/fact_orders_static.sql). Sebagai langkah awal pengujian **Dynamic Partitioning**, mari kita bayangkan model dbt yang *tidak* menggunakan parameter `partitions` pada config block-nya:
+Kita buat model dbt bernama `fact_orders_static.sql` (lihat di [GitHub Gist](https://gist.github.com/5460a85a187f0aa34d6e9509b7746bbe#file-fact_orders_static-sql)). Sebagai langkah awal pengujian **Dynamic Partitioning**, mari kita bayangkan model dbt yang *tidak* menggunakan parameter `partitions` pada config block-nya:
 
 ```sql
 {{ config(
@@ -81,13 +87,13 @@ dbt run --select fact_orders_static --full-refresh
 Seluruh data dari H-3 hingga H-1 berhasil masuk ke tabel `fact_orders_static`.
 
 ### Langkah 3: Menghapus Data di Staging (Titik Masalah)
-Bagaimana jika terjadi koreksi data di mana transaksi pada H-1 (misalnya tanggal `2026-07-05`) **dihapus sepenuhnya** dari staging?
+Bagaimana jika terjadi koreksi data di mana transaksi pada H-1 (`DATE_SUB(CURRENT_DATE(), INTERVAL 1 DAY)`) **dihapus sepenuhnya** dari staging?
 
 ```sql
 DELETE FROM dev.stg_orders
-WHERE order_date = date_sub(current_date(), interval 1 day);
+WHERE order_date = DATE_SUB(CURRENT_DATE(), INTERVAL 1 DAY);
 ```
-Sekarang, tabel staging `dev.stg_orders` tidak memiliki data sama sekali untuk tanggal `2026-07-05`.
+Sekarang, tabel staging `dev.stg_orders` tidak memiliki data sama sekali untuk partisi H-1.
 
 ---
 
@@ -98,72 +104,74 @@ Mari kita jalankan dbt run secara incremental:
 ```bash
 dbt run --select fact_orders_static
 ```
-* **Hasil yang Diharapkan**: Partisi `2026-07-05` di tabel target ikut kosong (terhapus), menyelaraskan diri dengan staging.
-* **Hasil Aktual**: Data tanggal `2026-07-05` **masih ada** di tabel target! `dbt run` selesai dengan sukses, namun data usang (*stale*) tidak terhapus.
+* **Hasil yang Diharapkan**: Partisi H-1 di tabel target ikut kosong (terhapus), menyelaraskan diri dengan staging.
+* **Hasil Aktual**: Data partisi H-1 **masih ada** di tabel target! `dbt run` selesai dengan sukses, namun data usang (*stale*) tidak terhapus.
 
 #### Mengapa Dynamic Partitioning Gagal? (Bedah SQL)
-Jika kita melihat SQL yang dihasilkan pada dbt target run (lihat [incr_insow_dynamic_partitions.sql](file:///home/al/Projects/sandbox-hub/analysis/dbt-bq/incr_insow_dynamic_partitions.sql)), dbt melakukan langkah berikut:
+Jika kita melihat SQL yang dihasilkan pada dbt target run (lihat `incr_insow_dynamic_partitions.sql` di [GitHub Gist](https://gist.github.com/5460a85a187f0aa34d6e9509b7746bbe#file-incr_insow_dynamic_partitions-sql)), dbt melakukan langkah berikut:
 
 1. **Membuat tabel temporary** untuk menampung hasil query model:
    ```sql
-   create or replace table `dev`.`fact_orders_static__dbt_tmp` as (
-     SELECT * from `dev`.`stg_orders`
-     WHERE order_date = date_sub(current_date(), interval 1 day)
+   CREATE OR REPLACE TABLE `dev`.`fact_orders_static__dbt_tmp` AS (
+       SELECT *
+       FROM `dev`.`stg_orders`
+       WHERE order_date = DATE_SUB(CURRENT_DATE(), INTERVAL 1 DAY)
    );
    ```
    *Karena data H-1 di staging sudah kosong, tabel temporary ini memiliki **0 baris data**.*
 
 2. **Mendeteksi daftar partisi** secara dinamis dari tabel temporary:
    ```sql
-   declare dbt_partitions_for_replacement array<date>;
-   set (dbt_partitions_for_replacement) = (
-       select as struct
-           array_agg(distinct date(order_date) IGNORE NULLS)
-       from `dev`.`fact_orders_static__dbt_tmp`
+   DECLARE dbt_partitions_for_replacement ARRAY<DATE>;
+   SET (dbt_partitions_for_replacement) = (
+       SELECT AS STRUCT
+           ARRAY_AGG(DISTINCT DATE(order_date) IGNORE NULLS)
+       FROM `dev`.`fact_orders_static__dbt_tmp`
    );
    ```
    *Karena tabel temporary kosong, variabel `dbt_partitions_for_replacement` bernilai **empty array (`[]`)** atau **`NULL`**.*
 
 3. **Melakukan MERGE statement** untuk menimpa target:
    ```sql
-   merge into `dev`.`fact_orders_static` as DBT_INTERNAL_DEST
-   using (
-       select * from `dev`.`fact_orders_static__dbt_tmp`
-   ) as DBT_INTERNAL_SOURCE
-   on FALSE
-   when not matched by source
-        and date(DBT_INTERNAL_DEST.order_date) in unnest(dbt_partitions_for_replacement) 
-       then delete
-   when not matched then insert ...
+   MERGE INTO `dev`.`fact_orders_static` AS dbt_internal_dest
+   USING (
+       SELECT * FROM `dev`.`fact_orders_static__dbt_tmp`
+   ) AS dbt_internal_source
+       ON FALSE
+   WHEN NOT MATCHED BY SOURCE
+        AND DATE(dbt_internal_dest.order_date) IN UNNEST(dbt_partitions_for_replacement) 
+       THEN DELETE
+   WHEN NOT MATCHED THEN INSERT ...
    ```
    Perhatikan bagian:
-   `and date(DBT_INTERNAL_DEST.order_date) in unnest(dbt_partitions_for_replacement)`
+   `and date(dbt_internal_dest.order_date) in unnest(dbt_partitions_for_replacement)`
    
-   Karena variabel `dbt_partitions_for_replacement` bernilai kosong, kondisi `in unnest(...)` bernilai salah (`false`) untuk semua baris. Akibatnya, BigQuery tidak menghapus partisi target apa pun. Data lama di partisi `2026-07-05` tetap aman bersemayam di tabel target.
+   Karena variabel `dbt_partitions_for_replacement` bernilai kosong, kondisi `in unnest(...)` bernilai salah (`false`) untuk semua baris. Akibatnya, BigQuery tidak menghapus partisi target apa pun. Data lama di partisi H-1 tetap aman bersemayam di tabel target.
 
 ---
 
 ### Skenario B: Menggunakan Static Partitioning
-Sekarang, mari kita konfigurasi model dbt kita agar menggunakan Static Partitioning dengan menambahkan parameter `partitions` pada config block seperti pada file [fact_orders_static.sql](file:///home/al/Projects/sandbox-hub/analysis/dbt-bq/sans/models/fact_orders_static.sql):
+Sekarang, mari kita konfigurasi model dbt kita agar menggunakan Static Partitioning dengan menambahkan parameter `partitions` pada config block seperti pada file `fact_orders_static.sql` (lihat di [GitHub Gist](https://gist.github.com/5460a85a187f0aa34d6e9509b7746bbe#file-fact_orders_static-sql)):
 
 ```sql
-{{ config(
-    materialized='incremental',
-    incremental_strategy='insert_overwrite',
-    partition_by={
-      "field": "order_date",
-      "data_type": "date",
-      "granularity": "day"
-    },
-    partitions=[var('start_date')] -- Menentukan partisi target secara statis
-) }}
+{{
+    config(
+        materialized='incremental',
+        incremental_strategy='insert_overwrite',
+        partition_by={
+            "field": "order_date",
+            "data_type": "date",
+            "granularity": "day"
+        },
+        partitions=[var('start_date')] -- Menentukan partisi target secara statis
+    )
+}}
 
-SELECT 
-    *
-from {{ source('dev', 'stg_orders') }}
+SELECT *
+FROM {{ source('dev', 'stg_orders') }}
 
 {% if is_incremental() %}
-WHERE order_date = {{ var("start_date") }}
+    WHERE order_date = {{ var("start_date") }}
 {% endif %}
 ```
 
@@ -171,29 +179,30 @@ Mari kita jalankan dbt run dengan menyuplai tanggal target melalui variable:
 ```bash
 dbt run --select fact_orders_static --vars '{"start_date": "date_sub(current_date(), interval 1 day)"}'
 ```
-* **Hasil Aktual**: Data tanggal `2026-07-05` di tabel target **berhasil terhapus** (menjadi kosong), sesuai dengan kondisi staging terbaru!
+* **Hasil Aktual**: Data partisi H-1 di tabel target **berhasil terhapus** (menjadi kosong), sesuai dengan kondisi staging terbaru!
 
 #### Mengapa Static Partitioning Berhasil? (Bedah SQL)
-Mari kita lihat SQL hasil compile untuk Static Partitioning (lihat [incr_insow_static_partitions.sql](file:///home/al/Projects/sandbox-hub/analysis/dbt-bq/incr_insow_static_partitions.sql)):
+Mari kita lihat SQL hasil compile untuk Static Partitioning (lihat `incr_insow_static_partitions.sql` di [GitHub Gist](https://gist.github.com/5460a85a187f0aa34d6e9509b7746bbe#file-incr_insow_static_partitions-sql)):
 
 ```sql
-merge into `dev`.`fact_orders_static` as DBT_INTERNAL_DEST
-using (
-    SELECT * from `dev`.`stg_orders`
-    WHERE order_date = date_sub(current_date(), interval 1 day)
-) as DBT_INTERNAL_SOURCE
-on FALSE
-when not matched by source
-     and date(DBT_INTERNAL_DEST.order_date) in (
-            date_sub(current_date(), interval 1 day)
+MERGE INTO `dev`.`fact_orders_static` AS dbt_internal_dest
+USING (
+    SELECT *
+    FROM `dev`.`stg_orders`
+    WHERE order_date = DATE_SUB(CURRENT_DATE(), INTERVAL 1 DAY)
+) AS dbt_internal_source
+    ON FALSE
+WHEN NOT MATCHED BY SOURCE
+     AND DATE(dbt_internal_dest.order_date) IN (
+            DATE_SUB(CURRENT_DATE(), INTERVAL 1 DAY)
         ) 
-    then delete
-when not matched then insert ...
+    THEN DELETE
+WHEN NOT MATCHED THEN INSERT ...
 ```
 Perhatikan perbedaannya:
 - dbt tidak membuat tabel temporary atau mendeklarasikan variabel array partisi dinamis.
-- Daftar partisi langsung di-hardcode ke dalam query `merge` di bagian `when not matched by source and date(DBT_INTERNAL_DEST.order_date) in (...)`.
-- Meskipun subquery `using (...)` dari staging menghasilkan 0 baris, kondisi `date(DBT_INTERNAL_DEST.order_date) in (date_sub(current_date(), interval 1 day))` tetap dievaluasi untuk setiap baris di tabel tujuan.
+- Daftar partisi langsung di-hardcode ke dalam query `merge` di bagian `when not matched by source and date(dbt_internal_dest.order_date) in (...)`.
+- Meskipun subquery `using (...)` dari staging menghasilkan 0 baris, kondisi `date(dbt_internal_dest.order_date) in (date_sub(current_date(), interval 1 day))` tetap dievaluasi untuk setiap baris di tabel tujuan.
 - Karena baris H-1 di tabel tujuan tidak memiliki pasangan di source (karena source kosong), kondisi `when not matched by source` terpenuhi, dan baris-baris tersebut **berhasil dihapus**.
 
 ---

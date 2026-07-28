@@ -1,74 +1,38 @@
+-- Generated script to merge partitions into `ichsanul-dev`.`dev`.`fact_orders_static`
+DECLARE dbt_partitions_for_replacement ARRAY<DATE>;
 
+-- 1. Create a temp table with model data
+CREATE OR REPLACE TABLE `ichsanul-dev`.`dev`.`fact_orders_static__dbt_tmp195903749846`
+PARTITION BY order_date
+OPTIONS (
+    expiration_timestamp = TIMESTAMP_ADD(CURRENT_TIMESTAMP(), INTERVAL 12 HOUR)
+) AS (
+    SELECT *
+    FROM `ichsanul-dev`.`dev`.`stg_orders`
+    WHERE order_date = DATE_SUB(CURRENT_DATE(), INTERVAL 1 DAY)
+);
 
-    
-    
-        -- generated script to merge partitions into `ichsanul-dev`.`dev`.`fact_orders_static`
-      declare dbt_partitions_for_replacement array<date>;
+-- 2. Define partitions to update
+SET (dbt_partitions_for_replacement) = (
+    SELECT AS STRUCT
+        -- IGNORE NULLS: this needs to be aligned to _dbt_max_partition, which ignores null
+        ARRAY_AGG(DISTINCT DATE(order_date) IGNORE NULLS)
+    FROM `ichsanul-dev`.`dev`.`fact_orders_static__dbt_tmp195903749846`
+);
 
-      
-      
-       -- 1. create a temp table with model data
-        
-  
-    
+-- 3. Run the merge statement
+MERGE INTO `ichsanul-dev`.`dev`.`fact_orders_static` AS dbt_internal_dest
+USING (
+    SELECT *
+    FROM `ichsanul-dev`.`dev`.`fact_orders_static__dbt_tmp195903749846`
+) AS dbt_internal_source
+    ON FALSE
+WHEN NOT MATCHED BY SOURCE
+    AND DATE(dbt_internal_dest.order_date) IN UNNEST(dbt_partitions_for_replacement)
+    THEN DELETE
+WHEN NOT MATCHED THEN
+    INSERT (`order_id`, `order_date`, `updated_at`, `amount`)
+    VALUES (`order_id`, `order_date`, `updated_at`, `amount`);
 
-    create or replace table `ichsanul-dev`.`dev`.`fact_orders_static__dbt_tmp195903749846`
-      
-    partition by order_date
-    
-
-    
-    OPTIONS(
-      expiration_timestamp=TIMESTAMP_ADD(CURRENT_TIMESTAMP(), INTERVAL 12 hour)
-    )
-    as (
-      
-
-SELECT 
-    *
-from `ichsanul-dev`.`dev`.`stg_orders`
-
-
-WHERE order_date = date_sub(current_date(), interval 1 day)
-
-    );
-  
-      -- 2. define partitions to update
-      set (dbt_partitions_for_replacement) = (
-          select as struct
-              -- IGNORE NULLS: this needs to be aligned to _dbt_max_partition, which ignores null
-              array_agg(distinct date(order_date) IGNORE NULLS)
-          from `ichsanul-dev`.`dev`.`fact_orders_static__dbt_tmp195903749846`
-      );
-
-      -- 3. run the merge statement
-      
-
-    merge into `ichsanul-dev`.`dev`.`fact_orders_static` as DBT_INTERNAL_DEST
-        using (
-        select
-        * from `ichsanul-dev`.`dev`.`fact_orders_static__dbt_tmp195903749846`
-      ) as DBT_INTERNAL_SOURCE
-        on FALSE
-
-    when not matched by source
-         and date(DBT_INTERNAL_DEST.order_date) in unnest(dbt_partitions_for_replacement) 
-        then delete
-
-    when not matched then insert
-        (`order_id`, `order_date`, `updated_at`, `amount`)
-    values
-        (`order_id`, `order_date`, `updated_at`, `amount`)
-
-;
-
-      -- 4. clean up the temp table
-      drop table if exists `ichsanul-dev`.`dev`.`fact_orders_static__dbt_tmp195903749846`
-
-  
-
-
-    
-
-
-    
+-- 4. Clean up the temp table
+DROP TABLE IF EXISTS `ichsanul-dev`.`dev`.`fact_orders_static__dbt_tmp195903749846`;

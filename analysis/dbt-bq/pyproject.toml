@@ -5,4 +5,6 @@ requires-python = ">=3.12"
 dependencies = [
     "dbt-bigquery>=1.11.3",
     "dbt-core>=1.11.12",
+    "sqlfmt>=0.0.3",
+    "sqruff>=0.39.0",
 ]
