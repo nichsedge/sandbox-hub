@@ -1,0 +1,6 @@
+version: 2
+
+models:
+  - name: customer_summary
+    columns:
+      - name: customer_id

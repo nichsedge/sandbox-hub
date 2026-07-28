@@ -32,8 +32,7 @@ clean-targets:         # directories to be removed by `dbt clean`
 models:
   sans:
     # Config indicated by + and applies to all files under models/example/
-    example:
-      +materialized: view
+    +materialized: view
 
 vars:
   # This tells BigQuery to calculate yesterday at execution time.

@@ -1,0 +1,17 @@
+version: 2
+
+models:
+  - name: fct_orders
+    tests:
+      - row_count_equal:
+          name: check_orders_row_count_matches_customers
+          arguments:
+            compare_model: ref('dim_customers')
+    columns:
+      - name: customer_id
+        tests:
+          - relationships:
+              name: check_orders_customer_fk_to_dim_customers
+              arguments:
+                to: ref('dim_customers')
+                field: customer_id
