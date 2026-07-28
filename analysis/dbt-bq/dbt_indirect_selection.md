@@ -1,131 +1,116 @@
-# Mengapa `dbt test -s dim_customers` Gagal dengan Error `Table fct_orders Not Found`?
+# Mengapa `dbt test -s dim_customers` Error, Tapi `dbt test -s fct_orders` Menghasilkan "Nothing to do"?
 
-Pernahkah Anda hanya ingin menguji satu tabel dimensi di lokal atau CI (`dbt test -s dim_customers`), tetapi dbt justru **CRASH** dengan error seperti ini?
+Pernahkah Anda mengalami dua keanehan ini saat menggunakan `dbt test`?
 
+### Keanehan 1 (Default Mode: `eager`)
+Anda hanya menguji satu tabel dimensi (`dbt test -s dim_customers`), tetapi dbt justru **CRASH** dengan error seperti ini:
 ```text
 1 of 3 START test check_orders_customer_fk_to_dim_customers... [RUN]
 1 of 3 ERROR check_orders_customer_fk_to_dim_customers...
   Database Error: Not found: Table dev.fct_orders was not found in location US
 ```
-
 Padahal Anda **tidak pernah** mendefinisikan test tersebut di `dim_customers.yml`! Test tersebut ditulis di file `fct_orders.yml` milik model fakta.
-
-Di artikel ini, kita akan membongkar:
-1. **Mengapa test dari file `.yml` lain ikut terseret saat me-run `dbt test -s dim_customers`?**
-2. **Mitos: Apakah test tersebut berjalan 2x jika kita me-select kedua model?**
-3. **Solusi cepat & permanen menggunakan `--indirect-selection cautious`.**
 
 ---
 
-## 1. Kronologi Masalah: "Beda File `.yml`, Tapi Tetap Terseret"
-
-Bayangkan struktur project dbt Anda:
-```text
-models/
-├── dim_customers.sql
-├── dim_customers.yml
-├── fct_orders.sql
-└── fct_orders.yml
-```
-
-Di dalam `fct_orders.yml`, Anda mendefinisikan kustom nama test `check_orders_customer_fk_to_dim_customers` untuk memverifikasi `customer_id` di `dim_customers`:
-
-```yaml
-# fct_orders.yml
-version: 2
-
-models:
-  - name: fct_orders
-    tests:
-      - row_count_equal:
-          name: check_orders_row_count_matches_customers
-          arguments:
-            compare_model: ref('dim_customers')
-    columns:
-      - name: customer_id
-        tests:
-          - relationships:
-              name: check_orders_customer_fk_to_dim_customers
-              arguments:
-                to: ref('dim_customers')
-                field: customer_id
-```
-
-### Skenario Eksekusi:
-Anda hanya mengubah dan membangun tabel `dim_customers`:
+### Keanehan 2 (Mode: `cautious`)
+Anda berpindah ke `fct_orders` dan mencoba menjalankan perintah dengan flag `cautious`:
 ```bash
-dbt run -s dim_customers
-dbt test -s dim_customers
+dbt test -s fct_orders --indirect-selection cautious
 ```
-
-### Hasil Log Terminal:
+dbt justru mengeluarkan pesan mengejutkan:
 ```text
-Found 4 models, 3 data tests
-1 of 3 START test check_orders_customer_fk_to_dim_customers... [RUN]
-1 of 3 ERROR check_orders_customer_fk_to_dim_customers... 
-  Database Error: Not found: Table dev.fct_orders was not found
+Nothing to do. Try checking your model configs and model specification args
 ```
+Padahal di file `fct_orders.yml` jelas-jelas Anda sudah mendaftarkan test `relationships` dan `row_count_equal`!
 
-### 🔍 Mengapa Test dari `fct_orders.yml` Ikut Dijalankan?
+Di artikel ini, kita akan mengupas tuntas **logika di balik perilaku `dbt test`**, mengapa `Nothing to do` bisa terjadi, serta **solusi rahasia CLI dbt (`path:`) untuk skenario beda jadwal pipeline**.
+
+---
+
+## 1. Mengapa `dbt test -s dim_customers` Menyebabkan Error pada Mode `eager`?
+
 Secara default, dbt menggunakan mode **`--indirect-selection eager`**.
 
 Di mode `eager`, dbt membaca bahwa test `check_orders_customer_fk_to_dim_customers` di file `fct_orders.yml` menyebutkan `ref('dim_customers')`. dbt mengevaluasi:
-> *"Test ini menyentuh `dim_customers`. Karena Anda menjalankan `--select dim_customers`, maka test dari `fct_orders.yml` ini WAJIB diikutsertakan."*
+> *"Test ini menyentuh `dim_customers`. Karena Anda memilih `--select dim_customers`, maka test dari `fct_orders.yml` ini WAJIB diikutsertakan."*
 
 Karena Anda **baru me-run `dim_customers`** dan **belum me-run `fct_orders`**, tabel `fct_orders` belum ada di database. Test pun **CRASH / FAIL** karena tidak menemukan tabel `fct_orders`!
 
 ---
 
-## 2. Mitos: "Apakah Test Tersebut Berjalan 2x Jika Kedua Model Di-select?"
+## 2. Mengapa `dbt test -s fct_orders --indirect-selection cautious` Menghasilkan "Nothing to do"?
 
-Banyak data engineer khawatir: Jika kita menjalankan `dbt test -s fct_orders dim_customers`, apakah test `check_orders_customer_fk_to_dim_customers` tersebut akan dipanggil **2 kali** (sekali oleh `fct_orders` dan sekali oleh `dim_customers`)?
+Saat Anda beralih ke mode `--indirect-selection cautious` dan me-run:
+```bash
+dbt test -s fct_orders --indirect-selection cautious
+```
+
+Aturan mode `cautious` menyatakan:
+> *"Sebuah multi-model test HANYA akan dijalankan jika **SEMUA** tabel yang di-ref() oleh test tersebut diikutsertakan dalam perintah `--select`."*
+
+Mari kita bedah test di `fct_orders.yml`:
+1. `check_orders_customer_fk_to_dim_customers` ➔ Me-`ref('fct_orders')` AND `ref('dim_customers')`.
+2. `check_orders_row_count_matches_customers` ➔ Me-`ref('fct_orders')` AND `ref('dim_customers')`.
+
+Karena Anda **hanya me-select `fct_orders`** (tanpa `dim_customers`), mode `cautious` secara tegas **MELEWATI (SKIP)** kedua test tersebut demi keamanan agar tidak terjadi error *Table not found*. 
+
+Karena `fct_orders` tidak memiliki single-model test lain, dbt melaporkan: **`Nothing to do.`**!
+
+---
+
+## 3. Studi Kasus Production: Dua Model Beda Jadwal Pipeline
+
+### 🏭 Skenario Nyata di Pipeline Produksi:
+- **Jadwal 1 (Jam 01:00 AM)**: Me-run dan me-test **Tabel A (`dim_customers`)**.
+- **Jadwal 2 (Jam 02:00 AM)**: Me-run dan me-test **Tabel B (`fct_orders`)**.
+- Test perbandingan (misal `relationships`) ditulis di file **`fct_orders.yml`** karena Tabel B dibuat belakangan.
+
+### ⚠️ Dilema Eksekusi:
+1. **Jika Menggunakan Mode Default (`eager`)**:
+   Saat Jam 01:00 AM (`dbt test -s dim_customers`), test dari `fct_orders.yml` ikut terseret dan **CRASH / ERROR** karena Tabel B belum dibangun.
+2. **Jika Menggunakan Mode `cautious` Secara Naif**:
+   Saat Jam 02:00 AM (`dbt test -s fct_orders --indirect-selection cautious`), test dari `fct_orders.yml` malah di-**SKIP** (`Nothing to do`) karena Tabel A tidak disebutkan dalam `-s fct_orders`!
+
+---
+
+### 💡 Solusi Terbaik: Trik Selector `path:` untuk Pipeline Production
+
+Solusi paling elegan adalah mengombinasikan `--indirect-selection cautious` di Jam 01:00 AM dengan **Selector `path:`** di Jam 02:00 AM.
+
+#### ⏰ Jam 01:00 AM (Jadwal 1 - `dim_customers`):
+```bash
+dbt run --select dim_customers
+dbt test --select dim_customers --indirect-selection cautious
+```
+* **Hasil:** Test dari `fct_orders.yml` **OTOMATIS DI-SKIP** oleh mode `cautious`. Pipeline Jam 01:00 AM aman 100% dari error `Table fct_orders not found`!
+
+#### ⏰ Jam 02:00 AM (Jadwal 2 - `fct_orders`):
+```bash
+dbt run --select fct_orders
+dbt test --select path:models/indirect_selection/fct_orders.yml
+```
+* **Hasil:** Dengan menunjuk langsung file `path:fct_orders.yml`, dbt mengeksekusi seluruh test di dalam file `.yml` tersebut secara langsung tanpa terhalang filter `cautious`! Karena `dim_customers` sudah di-build pada Jam 01:00 AM, seluruh test perbandingan berjalan **100% PASS**!
+
+---
+
+## 4. Mitos: "Apakah Test Tersebut Berjalan 2x Jika Kedua Model Di-select?"
+
+Jika kita me-select kedua model dalam satu perintah (`dbt test -s fct_orders dim_customers`), apakah test `relationships` akan dipanggil **2 kali**?
 
 **Jawabannya: TIDAK.**
 
 dbt memiliki mekanisme **Node De-duplication** dalam 1 kali eksekusi (*invocation*):
 - dbt menyusun DAG dan mendaftarkan **Unique Node ID** untuk setiap test (contoh: `sans.indirect_selection.check_orders_customer_fk_to_dim_customers`).
-- Walaupun test tersebut di-indirect oleh `fct_orders` DAN `dim_customers`, dbt melihat Node ID tersebut sama.
-- dbt menjamin test tersebut hanya dieksekusi **tepat 1x saja** dalam satu perintah `dbt test`.
+- dbt menjamin setiap test node hanya dieksekusi **tepat 1x saja** dalam satu perintah CLI.
 
 ---
 
-## 3. Solusi Cerdas: Mode `--indirect-selection cautious`
+## 5. Ringkasan Sintaks & Solusi Pipeline
 
-Untuk mencegah test dari `fct_orders.yml` terseret saat Anda hanya menguji `dim_customers`, gunakan flag **`cautious`**:
-
-```bash
-dbt test -s dim_customers --indirect-selection cautious
-```
-
-### Perilaku Mode `cautious`:
-dbt mengevaluasi:
-> *"Test `check_orders_customer_fk_to_dim_customers` ini membutuhkan DUA tabel: `fct_orders` dan `dim_customers`. Karena Anda hanya memilih `dim_customers`, test ini gue **SKIP**."*
-
-### Hasil Eksekusi:
-Test tersebut otomatis di-skip, dan `dbt test` selesai dengan status **PASS (0 Error)** tanpa perlu memanggil tabel `fct_orders` yang belum dibuat!
-
----
-
-## 4. Konfigurasi Permanen untuk CI/CD & Local
-
-Daripada mengetik flag CLI terus-menerus, Anda bisa memasangnya secara permanen:
-
-### A. Di `dbt_project.yml`:
-```yaml
-flags:
-  indirect_selection: cautious
-```
-
-### B. Di Pipeline CI/CD (GitHub Actions / GitLab CI):
-```bash
-export DBT_INDIRECT_SELECTION=cautious
-```
-
----
-
-## 5. Ringkasan
-
-| Pertanyaan | Mode `eager` (Default) | Mode `cautious` (Rekomendasi) |
+| Skenario Pipeline | Perintah CLI | Perilaku & Hasil |
 | :--- | :--- | :--- |
-| **`dbt test -s dim_customers`** (Test tertulis di `fct_orders.yml`) | ❌ **Terseret & Error** (`fct_orders not found`) | ✅ **Di-skip** (Aman & Bebas Error) |
-| **`dbt test -s fct_orders dim_customers`** | ✅ Dijalankan **tepat 1x** (Dideduplikasi) | ✅ Dijalankan **tepat 1x** (Dideduplikasi) |
+| **Jadwal 1 (Jam 01:00 AM)** | `dbt test -s dim_customers --indirect-selection cautious` | ✅ **Aman (Skipped)** (Mencegah error `fct_orders not found`) |
+| **Jadwal 2 (Naif)** | `dbt test -s fct_orders --indirect-selection cautious` | ⚠️ **Nothing to do** (Skipped karena `dim_customers` tidak di-select) |
+| **Jadwal 2 (Trik Path `path:`)** | `dbt test -s path:fct_orders.yml` | ✅ **Lancar & Aman** (Memanggil seluruh test di `fct_orders.yml` secara langsung) |
+| **Pilihan Lain (Dua Model)** | `dbt test -s fct_orders dim_customers --indirect-selection cautious` | ✅ **Lancar & Aman** (Memanggil test 1x karena kedua tabel di-select) |
