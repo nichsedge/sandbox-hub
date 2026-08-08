@@ -1,0 +1,42 @@
+name: 'sharia_dw'
+version: '1.0.0'
+config-version: 2
+
+profile: 'sharia_dw'
+
+model-paths: ["models"]
+analysis-paths: ["analyses"]
+test-paths: ["tests"]
+seed-paths: ["seeds"]
+macro-paths: ["macros"]
+snapshot-paths: ["snapshots"]
+
+clean-targets:
+  - "target"
+  - "dbt_packages"
+
+models:
+  sharia_dw:
+    staging:
+      +materialized: view
+      +tags: ["staging", "schedule_daily"]
+    intermediate:
+      +materialized: view
+      +tags: ["intermediate", "schedule_daily"]
+    marts:
+      retail:
+        +materialized: table
+        +tags: ["marts_retail", "schedule_daily"]
+      financing:
+        +materialized: table
+        +tags: ["marts_financing", "schedule_monthly"]
+      nisbah:
+        +materialized: table
+        +tags: ["marts_nisbah", "schedule_monthly"]
+      regulatory:
+        +materialized: table
+        +tags: ["marts_reg", "schedule_quarterly"]
+
+
+vars:
+  start_date: '2026-01-01'

@@ -1,0 +1,61 @@
+version: 2
+
+models:
+  # Retail Mart
+  - name: dim_customers
+    description: "Customer dimension table"
+    columns:
+      - name: customer_id
+        tests:
+          - unique
+          - not_null
+
+  - name: dim_accounts
+    description: "Account dimension table"
+    columns:
+      - name: account_id
+        tests:
+          - unique
+          - not_null
+
+  - name: fct_daily_transactions
+    description: "Daily customer transaction fact table"
+    columns:
+      - name: transaction_id
+        tests:
+          - unique
+          - not_null
+
+  - name: fct_account_balances
+    description: "Fact table recording daily account balances"
+
+  # Financing Mart
+  - name: dim_financing_contracts
+    description: "Financing contract dimension table (Murabahah & Musyarakah)"
+    columns:
+      - name: contract_id
+        tests:
+          - unique
+          - not_null
+
+  - name: fct_financing_portfolio
+    description: "Fact table for financing asset quality and OJK kolektibilitas"
+
+  # Nisbah Profit Sharing Mart
+  - name: fct_monthly_nisbah_payout
+    description: "Fact table recording monthly profit sharing (Nisbah) payouts per Mudharabah account"
+    columns:
+      - name: account_id
+        tests:
+          - unique
+          - not_null
+
+  - name: rpt_mudharabah_yield_summary
+    description: "Summary report of Mudharabah balances, profit pool, payouts, and effective yields per branch"
+
+  # Regulatory Mart
+  - name: rpt_ojk_apolo_lbu_summary
+    description: "OJK Regulatory report analyzing financing asset quality and NPF (Non-Performing Financing) ratio"
+
+  - name: rpt_zakat_purification_qardh
+    description: "Sharia Governance report calculating 2.5% Zakat and tracking Qardh Hasan charity fund purification items"

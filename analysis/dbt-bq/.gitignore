@@ -1,4 +1,53 @@
+# ==========================================
+# Python & Virtual Environments
+# ==========================================
 .venv/
-logs/
+venv/
+ENV/
+env/
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# ==========================================
+# dbt Build Artifacts & Logs
+# ==========================================
 target/
+dbt_packages/
+dbt_modules/
+logs/
 *.log
+*.msgpack
+partial_parse.msgpack
+
+# ==========================================
+# DuckDB Local Database Storage
+# ==========================================
+*.duckdb
+*.duckdb.wal
+*.duckdb.tmp
+
+# ==========================================
+# Apache Airflow Local Database & State
+# ==========================================
+airflow.db
+airflow.db-shm
+airflow.db-wal
+airflow-webserver.pid
+airflow-scheduler.pid
+airflow-worker.pid
+simple_auth_manager_passwords.json.generated
+standalone_admin_password.txt
+
+# ==========================================
+# OS & Editor Files
+# ==========================================
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*.swo

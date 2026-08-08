@@ -1,0 +1,15 @@
+version: 2
+
+models:
+  - name: stg_customers
+    description: "Staging customer master details"
+  - name: stg_accounts
+    description: "Staging Wadiah & Mudharabah deposit accounts"
+  - name: stg_financing_contracts
+    description: "Staging Murabahah & Musyarakah financing contracts with OJK asset quality classification"
+  - name: stg_daily_transactions
+    description: "Staging daily transaction ledger"
+  - name: stg_bank_income_pool
+    description: "Staging bank gross distributable revenue pool"
+  - name: stg_purification_fund
+    description: "Staging Sharia purification & charity fund items"

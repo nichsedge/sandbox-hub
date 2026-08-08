@@ -1,0 +1,7 @@
+sharia_dw:
+  target: dev
+  outputs:
+    dev:
+      type: duckdb
+      path: sharia_dw.duckdb
+      threads: 4

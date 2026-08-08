@@ -1,0 +1,11 @@
+version: 2
+
+models:
+  - name: int_daily_account_balances
+    description: "Daily running balance calculations for Wadiah & Mudharabah accounts"
+  - name: int_mudharabah_average_balances
+    description: "Monthly Average Daily Balance (Saldo Rata-Rata Harian / ADB) per Mudharabah account"
+  - name: int_financing_performance
+    description: "Financing contract asset quality and OJK kolektibilitas classification"
+  - name: int_nisbah_profit_distribution
+    description: "Monthly Mudharabah profit sharing calculation per account based on Nisbah ratio and ADB pool weight"

@@ -3,8 +3,16 @@ name = "dbt-bq"
 version = "0.1.0"
 requires-python = ">=3.12"
 dependencies = [
-    "dbt-bigquery>=1.11.3",
-    "dbt-core>=1.11.12",
-    "sqlfmt>=0.0.3",
-    "sqruff>=0.39.0",
+    "dbt-core",
+    "dbt-duckdb",
+    "dbt-bigquery",
+    "astronomer-cosmos",
+    "apache-airflow",
+    "pandas",
+    "faker",
+    "duckdb",
+    "sqlfmt",
+    "sqruff",
 ]
+
+
