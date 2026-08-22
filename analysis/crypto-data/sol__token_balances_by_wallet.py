@@ -7,11 +7,11 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # --- Your initial script ---
-WALLET_ADDRESS = os.getenv("WALLET_ADDRESS")
+SOL_ADDRESS = os.getenv("SOL_ADDRESS")
 ALCHEMY_API_KEY = os.getenv("ALCHEMY_API_KEY")
 url = f"https://api.g.alchemy.com/data/v1/{ALCHEMY_API_KEY}/assets/tokens/balances/by-address"
 
-payload = {"addresses": [{"address": WALLET_ADDRESS, "networks": ["solana-mainnet"]}]}
+payload = {"addresses": [{"address": SOL_ADDRESS, "networks": ["solana-mainnet"]}]}
 headers = {"Content-Type": "application/json"}
 
 try:
