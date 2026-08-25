@@ -6,16 +6,99 @@ on:
   pull_request:
 
 jobs:
-  projects:
+  changes:
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        project: [analysis/dbt-bq, analysis/crypto-data, tools/email-py, ai/video2text, ai/text2audio]
+    outputs:
+      dbt-bq: ${{ steps.filter.outputs.dbt-bq }}
+      crypto-data: ${{ steps.filter.outputs.crypto-data }}
+      email-py: ${{ steps.filter.outputs.email-py }}
+      video2text: ${{ steps.filter.outputs.video2text }}
+      text2audio: ${{ steps.filter.outputs.text2audio }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            dbt-bq:
+              - 'analysis/dbt-bq/**'
+            crypto-data:
+              - 'analysis/crypto-data/**'
+            email-py:
+              - 'tools/email-py/**'
+            video2text:
+              - 'ai/video2text/**'
+            text2audio:
+              - 'ai/text2audio/**'
+
+  dbt-bq:
+    needs: changes
+    if: github.event_name == 'push' || needs.changes.outputs.dbt-bq == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: analysis/dbt-bq
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+      - run: uv sync --locked
+
+  crypto-data:
+    needs: changes
+    if: github.event_name == 'push' || needs.changes.outputs.crypto-data == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: analysis/crypto-data
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.11"
+      - run: uv sync --locked
+
+  email-py:
+    needs: changes
+    if: github.event_name == 'push' || needs.changes.outputs.email-py == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: tools/email-py
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+      - run: uv sync --locked
+
+  video2text:
+    needs: changes
+    if: github.event_name == 'push' || needs.changes.outputs.video2text == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ai/video2text
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.11"
+      - run: uv venv
+      - run: uv pip install setuptools
+      - run: uv sync --locked --inexact --no-build-isolation-package openai-whisper
+
+  text2audio:
+    needs: changes
+    if: github.event_name == 'push' || needs.changes.outputs.text2audio == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ai/text2audio
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
         with:
           python-version: "3.13"
       - run: uv sync --locked
-        working-directory: ${{ matrix.project }}
