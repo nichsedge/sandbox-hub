@@ -1,13 +1,13 @@
 [project]
 name = "py-sandbox"
 version = "0.1.0"
-requires-python = ">=3.12"
+requires-python = ">=3.14.7"
 dependencies = [
-    "fastapi>=0.116.1",
-    "imapclient>=3.0.1",
-    "openai>=1.99.9",
-    "requests>=2.32.4",
+    "fastapi>=0.141.1",
+    "imapclient>=3.1.0",
+    "openai>=1.109.1",
+    "requests>=2.34.2",
     "secure-smtplib>=0.1.1",
-    "sqlalchemy>=2.0.43",
-    "uvicorn[standard]>=0.35.0",
+    "sqlalchemy>=2.0.52",
+    "uvicorn[standard]>=0.52.4",
 ]
