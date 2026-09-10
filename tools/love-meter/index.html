@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Love Meter 💖</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      background: linear-gradient(135deg, #ffeef8 0%, #fff0f5 50%, #ffe4ec 100%);
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      overflow: hidden;
+    }
+    .container { text-align: center; z-index: 10; position: relative; }
+    h1 {
+      font-size: clamp(2rem, 8vw, 4rem);
+      background: linear-gradient(135deg, #e91e63, #f06292, #ec407a);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      margin-bottom: 0.5rem;
+      animation: pulse 2s ease-in-out infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { transform: scale(1); }
+      50% { transform: scale(1.05); }
+    }
+    .subtitle { color: #ad1457; font-size: 1.2rem; margin-bottom: 2rem; font-weight: 300; }
+    .meter-wrap {
+      width: 100%;
+      max-width: 400px;
+      margin: 2rem auto;
+      position: relative;
+    }
+    .meter-bg {
+      height: 40px;
+      background: rgba(255,255,255,0.3);
+      border-radius: 20px;
+      overflow: hidden;
+      box-shadow: inset 0 2px 8px rgba(233,30,99,0.2), 0 4px 20px rgba(233,30,99,0.15);
+      border: 2px solid rgba(233,30,99,0.2);
+    }
+    .meter-fill {
+      height: 100%;
+      width: 0%;
+      background: linear-gradient(90deg, #e91e63, #f06292, #ec407a, #f8bbd0);
+      border-radius: 18px;
+      transition: width 1.5s cubic-bezier(0.68, -0.55, 0.27, 1.55);
+      position: relative;
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      padding-right: 12px;
+    }
+    .meter-fill::after {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: linear-gradient(90deg, transparent, rgba(255,255,255,0.4), transparent);
+      animation: shimmer 2s infinite;
+    }
+    @keyframes shimmer {
+      0% { transform: translateX(-100%); }
+      100% { transform: translateX(100%); }
+    }
+    .love-value {
+      color: white;
+      font-weight: 700;
+      font-size: 1.3rem;
+      text-shadow: 0 2px 8px rgba(0,0,0,0.3);
+      z-index: 1;
+    }
+    .btn {
+      padding: 1rem 2.5rem;
+      font-size: 1.1rem;
+      font-weight: 600;
+      color: white;
+      background: linear-gradient(135deg, #e91e63, #ad1457);
+      border: none;
+      border-radius: 50px;
+      cursor: pointer;
+      box-shadow: 0 6px 20px rgba(233,30,99,0.4);
+      transition: all 0.3s ease;
+      margin-top: 1.5rem;
+    }
+    .btn:hover { transform: translateY(-3px); box-shadow: 0 10px 30px rgba(233,30,99,0.5); }
+    .btn:active { transform: translateY(0); }
+    .btn:disabled { opacity: 0.6; cursor: not-allowed; transform: none; }
+    .message {
+      margin-top: 2rem;
+      min-height: 60px;
+      font-size: 1.1rem;
+      color: #880e4f;
+      line-height: 1.6;
+    }
+    .message p { opacity: 0; transform: translateY(20px); transition: all 0.5s ease; }
+    .message p.show { opacity: 1; transform: translateY(0); }
+    .hearts-bg { position: fixed; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 1; overflow: hidden; }
+    .heart {
+      position: absolute;
+      font-size: 1.5rem;
+      animation: floatUp 8s linear infinite;
+      opacity: 0.6;
+    }
+    @keyframes floatUp {
+      0% { transform: translateY(100vh) rotate(0deg) scale(0.5); opacity: 0; }
+      10% { opacity: 0.6; }
+      90% { opacity: 0.6; }
+      100% { transform: translateY(-10vh) rotate(360deg) scale(1.2); opacity: 0; }
+    }
+    .stats {
+      display: flex;
+      gap: 2rem;
+      margin-top: 2rem;
+      justify-content: center;
+      flex-wrap: wrap;
+    }
+    .stat {
+      background: white;
+      padding: 1rem 1.5rem;
+      border-radius: 16px;
+      box-shadow: 0 4px 16px rgba(233,30,99,0.1);
+      border: 1px solid rgba(233,30,99,0.1);
+    }
+    .stat-value { font-size: 2rem; font-weight: 700; color: #e91e63; }
+    .stat-label { font-size: 0.85rem; color: #ad1457; text-transform: uppercase; letter-spacing: 0.5px; }
+    .surprise { margin-top: 2rem; font-size: 0.9rem; color: #ad1457; cursor: pointer; text-decoration: underline; }
+  </style>
+</head>
+<body>
+  <div class="hearts-bg" id="heartsBg"></div>
+  
+  <div class="container">
+    <h1>Love Meter</h1>
+    <p class="subtitle">Measuring the immeasurable since just now</p>
+    
+    <div class="meter-wrap">
+      <div class="meter-bg">
+        <div class="meter-fill" id="meterFill">
+          <span class="love-value" id="loveValue">0%</span>
+        </div>
+      </div>
+    </div>
+    
+    <button class="btn" id="measureBtn" onclick="measureLove()">Measure Love</button>
+    
+    <div class="message" id="message"></div>
+    
+    <div class="stats" id="stats" style="display:none;">
+      <div class="stat"><div class="stat-value" id="statCoffee">0</div><div class="stat-label">Coffees Shared</div></div>
+      <div class="stat"><div class="stat-value" id="statLaughs">0</div><div class="stat-label">Laughs Together</div></div>
+      <div class="stat"><div class="stat-value" id="statHugs">0</div><div class="stat-label">Virtual Hugs</div></div>
+      <div class="stat"><div class="stat-value" id="statForever">∞</div><div class="stat-label">Duration</div></div>
+    </div>
+    
+    <p class="surprise" onclick="showSurprise()">Click here for a surprise 💫</p>
+  </div>
+
+  <script>
+    // Web Audio API sound engine
+    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    
+    function playTone(frequency, duration, type = 'sine', volume = 0.15, delay = 0) {
+      const oscillator = audioCtx.createOscillator();
+      const gainNode = audioCtx.createGain();
+      oscillator.connect(gainNode);
+      gainNode.connect(audioCtx.destination);
+      oscillator.type = type;
+      oscillator.frequency.value = frequency;
+      gainNode.gain.setValueAtTime(0, audioCtx.currentTime + delay);
+      gainNode.gain.linearRampToValueAtTime(volume, audioCtx.currentTime + delay + 0.01);
+      gainNode.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + delay + duration);
+      oscillator.start(audioCtx.currentTime + delay);
+      oscillator.stop(audioCtx.currentTime + delay + duration);
+    }
+    
+    function playChord(frequencies, duration, volume = 0.1) {
+      frequencies.forEach(f => playTone(f, duration, 'sine', volume));
+    }
+    
+    function playHeartbeat() {
+      // Lub-dub heartbeat
+      playTone(60, 0.15, 'triangle', 0.2);
+      playTone(50, 0.1, 'triangle', 0.15, 0.18);
+      playTone(55, 0.15, 'triangle', 0.18, 0.4);
+      playTone(45, 0.1, 'triangle', 0.12, 0.55);
+    }
+    
+    function playLoveChime() {
+      // Ascending major chord arpeggio
+      const notes = [523.25, 659.25, 783.99, 1046.5]; // C5, E5, G5, C6
+      notes.forEach((freq, i) => playTone(freq, 0.4, 'sine', 0.12, i * 0.1));
+    }
+    
+    function playCelebration() {
+      // Happy little melody
+      const melody = [
+        {f: 523.25, d: 0.15},  // C5
+        {f: 659.25, d: 0.15},  // E5
+        {f: 783.99, d: 0.15},  // G5
+        {f: 1046.5, d: 0.3},   // C6
+        {f: 783.99, d: 0.15},  // G5
+        {f: 1046.5, d: 0.4},   // C6
+      ];
+      melody.forEach((note, i) => playTone(note.f, note.d, 'sine', 0.15, i * 0.12));
+    }
+    
+    function playSurpriseSound() {
+      // Magic sparkle sound
+      for (let i = 0; i < 8; i++) {
+        playTone(1000 + Math.random() * 2000, 0.15, 'sine', 0.08, i * 0.05);
+      }
+    }
+    
+    function playMeterTick(progress) {
+      // Subtle tick as meter fills
+      if (progress % 15 < 2) {
+        playTone(800 + progress * 5, 0.05, 'sine', 0.05);
+      }
+    }
+    
+    function resumeAudio() {
+      if (audioCtx.state === 'suspended') {
+        audioCtx.resume();
+      }
+    }
+    
+    const messages = [
+      "💖 Love detected: Off the charts!",
+      "✨ Your heart just grew three sizes.",
+      "🌈 Radiating warmth to everyone nearby.",
+      "💫 Love level: \"Yes, absolutely.\"",
+      "🦋 Butterflies deployed successfully.",
+      "🌟 Certified sweetheart status achieved.",
+      "💝 Warning: Excessive adorable detected.",
+      "🎀 You're the reason this meter exists.",
+      "☕ Runs on coffee, code, and you.",
+      "📊 Data says: You're loved. A lot."
+    ];
+    
+    let measured = false;
+    
+    function createFloatingHearts() {
+      const container = document.getElementById('heartsBg');
+      const heartChars = ['💖', '💕', '💗', '💓', '💞', '💟', '❤️', '🧡', '💛', '💚', '💙', '💜'];
+      for (let i = 0; i < 20; i++) {
+        const heart = document.createElement('div');
+        heart.className = 'heart';
+        heart.textContent = heartChars[Math.floor(Math.random() * heartChars.length)];
+        heart.style.left = Math.random() * 100 + '%';
+        heart.style.animationDelay = Math.random() * 8 + 's';
+        heart.style.animationDuration = (6 + Math.random() * 6) + 's';
+        heart.style.fontSize = (1 + Math.random() * 1.5) + 'rem';
+        container.appendChild(heart);
+      }
+    }
+    
+    function measureLove() {
+      const btn = document.getElementById('measureBtn');
+      const fill = document.getElementById('meterFill');
+      const value = document.getElementById('loveValue');
+      const msgDiv = document.getElementById('message');
+      const stats = document.getElementById('stats');
+      
+      resumeAudio();
+      playHeartbeat();
+      
+      btn.disabled = true;
+      btn.textContent = 'Measuring...';
+      
+      const target = 95 + Math.random() * 5; // 95-100%
+      let current = 0;
+      
+      const interval = setInterval(() => {
+        current += Math.random() * 3 + 1;
+        playMeterTick(current);
+        if (current >= target) {
+          current = target;
+          clearInterval(interval);
+          finishMeasurement();
+        }
+        fill.style.width = current + '%';
+        value.textContent = Math.floor(current) + '%';
+      }, 50);
+      
+      function finishMeasurement() {
+        btn.textContent = 'Measure Again';
+        btn.disabled = false;
+        btn.onclick = measureLove;
+        
+        const msg = messages[Math.floor(Math.random() * messages.length)];
+        msgDiv.innerHTML = `<p class="show">${msg}</p>`;
+        
+        playLoveChime();
+        setTimeout(playCelebration, 400);
+        
+        stats.style.display = 'flex';
+        animateStat('statCoffee', Math.floor(Math.random() * 500) + 100);
+        animateStat('statLaughs', Math.floor(Math.random() * 1000) + 200);
+        animateStat('statHugs', Math.floor(Math.random() * 300) + 50);
+        
+        measured = true;
+      }
+    }
+    
+    function animateStat(id, target) {
+      const el = document.getElementById(id);
+      let current = 0;
+      const interval = setInterval(() => {
+        current += Math.ceil(target / 30);
+        if (current >= target) {
+          current = target;
+          clearInterval(interval);
+        }
+        el.textContent = current.toLocaleString();
+      }, 40);
+    }
+    
+    function showSurprise() {
+      const surprises = [
+        "🎁 Surprise! You're the main character in someone's favorite story.",
+        "🌙 The moon called — it's jealous of how brightly you shine.",
+        "🎨 If kindness were a color, you'd be the whole rainbow.",
+        "📚 Your existence is a plot twist the universe didn't see coming — in the best way.",
+        "🌻 You're the human equivalent of a warm blanket on a cold day.",
+        "⭐ Somewhere, a star is named after your laugh.",
+        "🍀 You're not lucky to have — you're lucky to BE.",
+        "🎵 Life's playlist is better with you in it.",
+        "🕊️ Peace enters the room when you do.",
+        "💌 This message was delivered by a digital carrier pigeon with a heart on its wing."
+      ];
+      const msgDiv = document.getElementById('message');
+      const msg = surprises[Math.floor(Math.random() * surprises.length)];
+      msgDiv.innerHTML = `<p class="show">${msg}</p>`;
+      
+      resumeAudio();
+      playSurpriseSound();
+    }
+    
+    createFloatingHearts();
+    setInterval(createFloatingHearts, 8000);
+  </script>
+</body>
+</html>
