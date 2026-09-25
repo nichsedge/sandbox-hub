@@ -31,7 +31,7 @@ Personal sandbox: loose scripts, notebooks, dbt projects, and infra configs. Six
 ## Secrets & config
 
 - Never hardcode credentials or commit `.env` files. Pattern: `<name>.env-template` committed, real `.env` gitignored (see `tools/social/`).
-- `.envrc` sources secrets from outside this repo (`~/Projects/creds/env/sandbox-hub.env`) — keep it that way.
+- `.envrc` sources secrets from outside this repo (`~/Projects/dotfiles-private/env/sandbox-hub.env`) — keep it that way.
 - Local-dev defaults in `infra/` compose files (e.g. `password: postgres`) are intentional; leave them.
 
 ## Repo hygiene
