@@ -48,6 +48,8 @@ Repository layout: [`analysis/`](./analysis) · [`ai/`](./ai) · [`tools/`](./to
 | [`automation/speed_test.py`](./tools/automation/speed_test.py) | Run an internet speed test from the CLI |
 | [`automation/extract_gh_projects/`](./tools/automation/extract_gh_projects) | Export GitHub repo metadata datasets (JSON/JSONL/CSV) via `gh api graphql` |
 | [`email-py/`](./tools/email-py) | IMAP/SMTP toolkit: Ethereal test-account read/send, Gmail unread checks, email→ticket polling service |
+| [`crypto-quant/funding_scanner.py`](./tools/crypto-quant/funding_scanner.py) | Live crypto funding rate & cross-exchange basis scanner (Hyperliquid L1 vs Binance USDT-M) for delta-neutral yield & arbitrage |
+
 
 ## 📚 Study (`study/`)
 
