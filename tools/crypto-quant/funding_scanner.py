@@ -12,9 +12,12 @@ Scans Hyperliquid (L1 DEX Perp) and Binance (CEX Perp) public APIs to detect:
 2. Cross-exchange funding spreads (Long Perp Exchange A + Short Perp Exchange B).
 """
 
+import os
 import sys
+import argparse
 from datetime import datetime
 import httpx
+
 from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
@@ -105,13 +108,73 @@ def fetch_binance_data(client: httpx.Client) -> dict[str, dict]:
 
     return bn_markets
 
-
 def format_rate(apr: float) -> str:
     color = "green" if apr > 0 else "red"
     return f"[{color}]{apr:+.2f}%[/{color}]"
 
 
+def send_telegram_alert(top_hl: list[dict], top_arb: list[dict]) -> bool:
+
+    """Send HTML briefing of top funding and arb opportunities to Telegram."""
+    token = os.environ.get("TELEGRAM_BOT_TOKEN") or os.environ.get("TELEGRAM_BOT_AT")
+    chat_id = os.environ.get("TELEGRAM_CHAT_ID", "387794487")
+
+    if not token:
+        console.print("[yellow]⚠️ Cannot send Telegram alert: TELEGRAM_BOT_TOKEN / TELEGRAM_BOT_AT not found.[/yellow]")
+        return False
+
+    now_str = datetime.now().strftime("%Y-%m-%d %H:%M WIB")
+    lines = [
+        f"⚡ <b>Crypto Funding & Basis Alert</b> ({now_str})",
+        "",
+        "🌟 <b>Top Cash & Carry (Hyperliquid)</b>",
+    ]
+
+    for m in top_hl[:5]:
+        lines.append(
+            f"• <b>{m['symbol']}</b>: <code>{m['apr']:+.1f}% APR</code> (${m['oi_usd']/1e6:.1f}M OI)"
+        )
+
+    lines.append("")
+    lines.append("🔄 <b>Top Cross-Perp Spreads</b>")
+    for pair in top_arb[:5]:
+        lines.append(
+            f"• <b>{pair['asset']}</b>: <code>+{pair['spread_abs']:.1f}% Spread</code> ({pair['strategy']})"
+        )
+
+    lines.append("")
+    lines.append("<i>Zero-directional delta-neutral opportunity scanner</i>")
+    message = "\n".join(lines)
+
+    url = f"https://api.telegram.org/bot{token}/sendMessage"
+    payload = {
+        "chat_id": chat_id,
+        "text": message,
+        "parse_mode": "HTML",
+        "disable_web_page_preview": True,
+    }
+
+    try:
+        with httpx.Client() as client:
+            resp = client.post(url, json=payload, timeout=10.0)
+            if resp.is_success:
+                console.print(f"[bold green]✅ Telegram alert sent successfully to chat {chat_id}[/bold green]")
+                return True
+            else:
+                console.print(f"[red]❌ Telegram API error: {resp.text}[/red]")
+                return False
+    except Exception as e:
+        console.print(f"[red]❌ Failed to send Telegram alert: {e}[/red]")
+        return False
+
+
 def run_scanner():
+    parser = argparse.ArgumentParser(description="Crypto Funding Rate & Arbitrage Scanner")
+    parser.add_argument("-n", "--notify", action="store_true", help="Send alert to Telegram")
+    parser.add_argument("--min-spread", type=float, default=25.0, help="Minimum spread APR for alert filter")
+    parser.add_argument("--min-apr", type=float, default=20.0, help="Minimum HL APR for alert filter")
+    args = parser.parse_args()
+
     console.print(
         Panel.fit(
             "[bold cyan]⚡ Crypto Delta-Neutral Funding & Basis Scanner[/bold cyan]\n"
@@ -125,7 +188,7 @@ def run_scanner():
             hl_data = fetch_hyperliquid_data(client)
             bn_data = fetch_binance_data(client)
 
-    # Filter for minimum liquidity to avoid illiquid traps ($200k+ OI or $500k+ volume on HL)
+    # Filter for minimum liquidity to avoid illiquid traps ($200k+ OI or $300k+ volume on HL)
     liquid_hl = [
         m for m in hl_data.values()
         if m["oi_usd"] >= 200_000 and m["volume_24h"] >= 300_000
@@ -164,8 +227,6 @@ def run_scanner():
         if asset in bn_data and hl_item["oi_usd"] >= 200_000:
             bn_item = bn_data[asset]
             spread = bn_item["apr"] - hl_item["apr"]
-            # If spread > 0: Binance APR > HL APR -> Short Binance, Long HL
-            # If spread < 0: HL APR > Binance APR -> Short HL, Long Binance
             arb_pairs.append({
                 "asset": asset,
                 "hl_apr": hl_item["apr"],
@@ -218,6 +279,10 @@ def run_scanner():
         )
     )
 
+    if args.notify:
+        send_telegram_alert(sorted_hl, sorted_arb)
+
 
 if __name__ == "__main__":
     run_scanner()
+

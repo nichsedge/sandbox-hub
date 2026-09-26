@@ -1,4 +1,8 @@
 output/*
+*.sqlite
+*.sqlite3
+*.db
+tools/crypto-quant/data/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
