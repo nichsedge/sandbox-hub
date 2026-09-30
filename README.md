@@ -49,6 +49,10 @@ Repository layout: [`analysis/`](./analysis) · [`ai/`](./ai) · [`tools/`](./to
 | [`automation/speed_test.py`](./tools/automation/speed_test.py) | Run an internet speed test from the CLI |
 | [`automation/extract_gh_projects/`](./tools/automation/extract_gh_projects) | Export GitHub repo metadata datasets (JSON/JSONL/CSV) via `gh api graphql` |
 | [`email-py/`](./tools/email-py) | IMAP/SMTP toolkit: Ethereal test-account read/send, Gmail unread checks, email→ticket polling service |
+| [`automation/vtt_dir2srt_dir.py`](./tools/automation/vtt_dir2srt_dir.py) | Batch convert VTT subtitle files to SRT format (vtt-to-srt3) |
+| [`automation/srt_dir2md.py`](./tools/automation/srt_dir2md.py) | Convert directory tree of SRT subtitles to structured Markdown (pysrt) |
+| [`automation/merge_txt_to_md.py`](./tools/automation/merge_txt_to_md.py) | Naturally sort and merge multiple text files into a single Markdown file |
+| [`automation/summarize_srt.py`](./tools/automation/summarize_srt.py) | Chunk and summarize SRT subtitle files using local Ollama LLMs |
 | [`crypto-quant/funding_scanner.py`](./tools/crypto-quant/funding_scanner.py) | Live crypto funding rate & cross-exchange basis scanner (Hyperliquid L1 vs Binance USDT-M) for delta-neutral yield & arbitrage with Telegram alert |
 | [`crypto-quant/paper_trader.py`](./tools/crypto-quant/paper_trader.py) | Delta-neutral paper trading & yield simulator tracking fees, mark prices, and live accrued funding payouts in SQLite |
 
