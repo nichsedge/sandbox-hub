@@ -6,10 +6,10 @@ Guidance for AI coding agents working in this repository.
 
 Personal sandbox: loose scripts, notebooks, dbt projects, and infra configs. Six domains:
 
-- `analysis/` — data engineering & analysis (dbt-BigQuery/DuckDB projects, crypto fetchers, analysis notebooks)
+- `analysis/` — data engineering & analysis (dbt-BigQuery/DuckDB projects, crypto fetchers, analysis scripts)
 - `ai/` — GenAI demos, Whisper transcription, gTTS text-to-audio
 - `tools/` — standalone utilities (`automation/`, `email-py/`, `social/reddit.py`)
-- `study/` — coursework notebooks
+- `study/` — coursework scripts
 - `infra/` — Airflow setup and Docker Compose stacks
 - `career/` — course work and recruitment take-homes (historical; don't refactor)
 
@@ -24,7 +24,7 @@ Personal sandbox: loose scripts, notebooks, dbt projects, and infra configs. Six
 ## Running / verifying
 
 - No test suite, no CI. Verify changes by running the changed script/command (smoke run), not by adding tests.
-- Sharia banking DW end-to-end: `cd analysis/dbt-bq && uv run python sharia_banking_dw/scripts/run_sharia_dw.py`
+- Sharia banking DW end-to-end: `cd analysis/dbt-bq && uv run sharia_banking_dw/scripts/run_sharia_dw.py`
 - dbt commands there need profiles next to the project: `cd sharia_banking_dw/dbt_project && uv run dbt build --profiles-dir .`
 - Airflow: `cd infra/airflow && bash install.sh && bash start.sh`
 
@@ -37,5 +37,5 @@ Personal sandbox: loose scripts, notebooks, dbt projects, and infra configs. Six
 ## Repo hygiene
 
 - Generated artifacts stay uncommitted: `*.duckdb`, `airflow.db`, `.venv/` (e.g. `analysis/dbt-bq/.venv`), dataset outputs.
-- Notebook outputs: clear before committing regenerated notebooks (`uv run tools/automation/reset_ipynb.py`).
+- Python scripts over notebooks: Active domains (`analysis/`, `study/`, `tools/`) use pure `.py` scripts for AI agent friendliness and clean diffs. Convert new notebooks via `uv run tools/automation/ipynb_to_py.py`. Historical `career/` notebooks retain `.ipynb`; clear outputs before committing (`uv run tools/automation/reset_ipynb.py`).
 - Commits follow Conventional Commits (`feat:`, `fix:`, `docs:`), one concern per commit.

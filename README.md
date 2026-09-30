@@ -13,7 +13,7 @@ Repository layout: [`analysis/`](./analysis) · [`ai/`](./ai) · [`tools/`](./to
 | [`dbt-bq/sharia_banking_dw/`](./analysis/dbt-bq/sharia_banking_dw) | Indonesian Sharia banking data warehouse simulation: dbt-duckdb Medallion models (staging → intermediate → marts) covering Nisbah profit-sharing, financing portfolio quality (OJK), Zakat & purification; orchestrated via Astronomer Cosmos on Airflow |
 | [`dbt-bq/bigquery_experiments/`](./analysis/dbt-bq/bigquery_experiments) | dbt-BigQuery research sandbox — dynamic vs static partition insert-overwrite and indirect test selection, with write-ups in [`docs/`](./analysis/dbt-bq/bigquery_experiments/docs) |
 | [`crypto-data/`](./analysis/crypto-data) | Fetch crypto data from Binance (CSV export parser) and CoinGecko API; query Solana token balances by wallet (Alchemy) |
-| [`finance/`](./analysis/finance) | Notebooks: recession indicators (`recession.ipynb`), Forbes wealth data (`forbes.ipynb`), Taleb-style fat-tails explorations (`taleb.ipynb`) |
+| [`finance/`](./analysis/finance) | Recession indicators (`recession.py`), Forbes wealth data (`forbes.py`), Taleb-style fat-tails explorations (`taleb.py`), and GBM simulations (`main.py`) |
 | [`indonesia-elections/`](./analysis/indonesia-elections) | Analysis of the 2024 Indonesian General Election |
 | [`religious-diversity-analysis/`](./analysis/religious-diversity-analysis) | Religious diversity across Indonesian organizations |
 
@@ -30,20 +30,21 @@ Repository layout: [`analysis/`](./analysis) · [`ai/`](./ai) · [`tools/`](./to
 
 | Script | Description |
 |---|---|
-| [`tools/social/reddit.py`](./tools/social/reddit.py) | Scrape Reddit posts and comments across mental health subreddits using PRAW + Pushshift API ([analysis notebook](./tools/social/reddit.ipynb)) |
+| [`tools/social/reddit.py`](./tools/social/reddit.py) | Scrape Reddit posts and comments across mental health subreddits using PRAW + Pushshift API |
 | [`study/academic/asdosan_scele.py`](./study/academic/asdosan_scele.py) | Scrape course/assignment data from SCELE (University of Indonesia's LMS) |
 
 ## 🛠️ Utilities (`tools/`)
 
 | Script / Tool | Description |
 |---|---|
+| [`automation/ipynb_to_py.py`](./tools/automation/ipynb_to_py.py) | Convert Jupyter notebooks (`.ipynb`) to clean Python (`.py`) scripts and purge original notebooks |
 | [`automation/mp3_to_txt.py`](./tools/automation/mp3_to_txt.py) | Transcribe MP3 audio to text via OpenAI's GPT-4o transcription API, chunked for long files |
 | [`automation/translate_srt.py`](./tools/automation/translate_srt.py) | Translate SRT subtitle files while preserving cue timing |
 | [`automation/gutenberg.py`](./tools/automation/gutenberg.py) | Download Honoré de Balzac books from Project Gutenberg and translate them to Indonesian |
 | [`automation/extract_amounts.py`](./tools/automation/extract_amounts.py) | Extract monetary amounts from PDF files (pdfplumber) |
 | [`automation/extract_transactions.py`](./tools/automation/extract_transactions.py) | Parse transactions from HTML into CSV (BeautifulSoup) |
 | [`automation/fatsecret_barcode.py`](./tools/automation/fatsecret_barcode.py) | Fetch food nutrition details from FatSecret by barcode (supports local `.env` credentials) |
-| [`automation/reset_ipynb.py`](./tools/automation/reset_ipynb.py) | Clear all outputs from Jupyter notebooks |
+| [`automation/reset_ipynb.py`](./tools/automation/reset_ipynb.py) | Clear all outputs from Jupyter notebooks (historical `career/` archives) |
 | [`automation/rm_pw_pdf.py`](./tools/automation/rm_pw_pdf.py) | Remove password protection from PDF files |
 | [`automation/speed_test.py`](./tools/automation/speed_test.py) | Run an internet speed test from the CLI |
 | [`automation/extract_gh_projects/`](./tools/automation/extract_gh_projects) | Export GitHub repo metadata datasets (JSON/JSONL/CSV) via `gh api graphql` |
@@ -55,11 +56,11 @@ Repository layout: [`analysis/`](./analysis) · [`ai/`](./ai) · [`tools/`](./to
 
 ## 📚 Study (`study/`)
 
-| Notebook | Description |
+| Script | Description |
 |---|---|
-| [`math/numerical_method.ipynb`](./study/math/numerical_method.ipynb) | Numerical methods implementations |
-| [`math/travelling-salesman-problem.ipynb`](./study/math/travelling-salesman-problem.ipynb) | TSP solver experiments |
-| [`academic/siakng_transcript_to_obsidian.ipynb`](./study/academic/siakng_transcript_to_obsidian.ipynb) | Convert SIAK-NG academic transcripts to Obsidian-compatible Markdown |
+| [`math/numerical_method.py`](./study/math/numerical_method.py) | Numerical methods implementations |
+| [`math/travelling-salesman-problem.py`](./study/math/travelling-salesman-problem.py) | TSP solver experiments |
+| [`academic/siakng_transcript_to_obsidian.py`](./study/academic/siakng_transcript_to_obsidian.py) | Convert SIAK-NG academic transcripts to Obsidian-compatible Markdown |
 
 ## 🏗️ Infrastructure (`infra/`)
 
@@ -92,7 +93,7 @@ Coding tests and take-home assignments for DE/DS/BE roles — see [`Recruitment.
 - **Orchestration**: Apache Airflow
 - **Databases / streaming**: PostgreSQL, DuckDB, Google BigQuery, Kafka / Redpanda
 - **AI/ML**: OpenAI API, Whisper, LangChain, LlamaIndex, Ollama
-- **Data Analysis**: Pandas, Jupyter Notebook
+- **Data Analysis**: Pandas, NumPy, Matplotlib, SciPy
 - **Speech & media**: gTTS, pydub, FFmpeg
 - **Scraping**: PRAW, Pushshift, BeautifulSoup, Requests
 - **Infrastructure**: Docker / Podman Compose
@@ -120,7 +121,7 @@ Run the Sharia banking DW end-to-end:
 
 ```bash
 cd analysis/dbt-bq
-uv run python sharia_banking_dw/scripts/run_sharia_dw.py
+uv run sharia_banking_dw/scripts/run_sharia_dw.py
 ```
 
 For Airflow:
