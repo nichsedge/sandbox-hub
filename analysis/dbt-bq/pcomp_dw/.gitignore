@@ -3,3 +3,5 @@ dbt_packages/
 logs/
 *.pyc
 dbt-service-account.json
+reports/
+

@@ -57,9 +57,24 @@ graph LR
 
 ## ⚡ Execution & Quickstart
 
-### Prerequisites
-- Python 3.12+ with `uv`
-- Google Cloud Service Account with BigQuery Data Editor permissions exported to `GCP_CREDENTIALS_FILE` (or `dbt-service-account.json`).
+### 1. Local-First DuckDB Dashboard (Zero Cloud / No BigQuery Required)
+Generate and view an interactive, self-contained HTML price intelligence report with Chart.js:
+
+```bash
+# From workspace root
+uv run analysis/dbt-bq/pcomp_dw/scripts/generate_report.py
+
+# Or auto-launch directly in Google Chrome / default browser:
+uv run analysis/dbt-bq/pcomp_dw/scripts/generate_report.py --open
+```
+- Report path: `analysis/dbt-bq/pcomp_dw/reports/pcomp_dashboard.html`
+- Uses in-memory DuckDB to directly query `~/Projects/indoscraping/data/hardware/*/*.json`.
+- Features KPI summary cards, EnterKomputer vs Viraindo grouped price comparisons, category distribution doughnut, GPU/CPU price tier benchmarks, and interactive searchable product explorer table.
+
+---
+
+### 2. Cloud BigQuery dbt Pipeline (Optional / Production)
+For warehouse modeling in Google BigQuery:
 
 ```bash
 # 1. Navigate to pcomp_dw directory
@@ -75,6 +90,7 @@ uv run dbt test --profiles-dir .
 uv run dbt docs generate --profiles-dir .
 uv run dbt docs serve --profiles-dir .
 ```
+- Requires `GCP_CREDENTIALS_FILE` pointing to a service account with BigQuery Data Editor permissions.
 
 ---
 
