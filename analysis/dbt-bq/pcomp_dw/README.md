@@ -61,15 +61,21 @@ graph LR
 Generate and view an interactive, self-contained HTML price intelligence report with Chart.js:
 
 ```bash
-# From workspace root
+# From workspace root: generate local report with dynamic grammar
 uv run analysis/dbt-bq/pcomp_dw/scripts/generate_report.py
 
-# Or auto-launch directly in Google Chrome / default browser:
+# Auto-launch directly in browser:
 uv run analysis/dbt-bq/pcomp_dw/scripts/generate_report.py --open
+
+# Enable AI agent fallback (agy/pi) for unclassified silicon edge cases:
+uv run analysis/dbt-bq/pcomp_dw/scripts/generate_report.py --ai-fallback
+uv run analysis/dbt-bq/pcomp_dw/scripts/generate_report.py --ai-fallback --agent pi
 ```
-- Report path: `analysis/dbt-bq/pcomp_dw/reports/pcomp_dashboard.html`
-- Uses in-memory DuckDB to directly query `~/Projects/indoscraping/data/hardware/*/*.json`.
-- Features KPI summary cards, EnterKomputer vs Viraindo grouped price comparisons, category distribution doughnut, GPU/CPU price tier benchmarks, and interactive searchable product explorer table.
+- **Report path**: `analysis/dbt-bq/pcomp_dw/reports/pcomp_dashboard.html`
+- **Dynamic Grammar**: Automatically recognizes next-gen hardware architectures (`RTX 5090`, `RTX 5080`, `RTX 5070`, `RX 9070 XT`, `Intel Arc B580`, `Ryzen 7 9800X3D`, `Core Ultra 9/7/5`, `Z890`, `X870E`, `DDR5 128GB/48GB`, `NVMe 4TB`, etc.) without hardcoding.
+- **AI Agent Fallback**: Leverages local terminal agents (`agy --dangerously-skip-permissions` or `pi`) to classify rare workstation or legacy chips and caches results to `data/ai_classified_hardware.json`.
+- **Zero Cloud**: Uses embedded in-memory DuckDB to directly query `~/Projects/indoscraping/data/hardware/*/*.json`.
+- **Features**: KPI cards (silicon recognition, retailer catalog share), grouped price comparisons, GPU/CPU/RAM/Storage/Motherboard/PSU benchmark charts, and interactive searchable product explorer table with unclassified filter badges.
 
 ---
 

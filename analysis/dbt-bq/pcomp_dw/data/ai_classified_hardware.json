@@ -1,0 +1,86 @@
+{
+  "Leadtek RTX PRO 2000 Blackwell 16GB GDDR7": {
+    "tier": "RTX PRO 2000 Blackwell",
+    "brand": "Leadtek"
+  },
+  "Leadtek RTX PRO 4000 Blackwell 24GB GDDR7": {
+    "tier": "RTX PRO 4000 Blackwell",
+    "brand": "Leadtek"
+  },
+  "Leadtek RTX PRO 4000 Blackwell SFF Edition 24GB GDDR7": {
+    "tier": "RTX PRO 4000 Blackwell",
+    "brand": "Leadtek"
+  },
+  "Leadtek RTX PRO 4500 Blackwell 32GB GDDR7": {
+    "tier": "RTX PRO 4500 Blackwell",
+    "brand": "Leadtek"
+  },
+  "Leadtek RTX PRO 5000 Blackwell 48GB GDDR7": {
+    "tier": "RTX PRO 5000 Blackwell",
+    "brand": "Leadtek"
+  },
+  "Leadtek RTX PRO 5000 Blackwell 72GB GDDR7": {
+    "tier": "RTX PRO 5000 Blackwell",
+    "brand": "Leadtek"
+  },
+  "Leadtek RTX PRO 6000 Blackwell 96GB GDDR7": {
+    "tier": "RTX PRO 6000 Blackwell",
+    "brand": "Leadtek"
+  },
+  "Leadtek RTX PRO 6000 Blackwell Max-Q 96GB GDDR7": {
+    "tier": "RTX PRO 6000 Blackwell",
+    "brand": "Leadtek"
+  },
+  "Dell AMD Radeon 550 2 GB - FPMW0 (Ready Stock)": {
+    "tier": "Radeon 550",
+    "brand": "Dell"
+  },
+  "AMD Bristol Ridge A6-9500 (Radeon R5 Series) 3.5Ghz Up To 3.8Ghz Cache 1MB 65W Socket AM4 [Box] - 3 Core - AD9500AGABBOX": {
+    "tier": "Bristol Ridge A6",
+    "brand": "AMD"
+  },
+  "AMD Bristol Ridge A6-9500 (Radeon R5 Series) 3.5Ghz Up To 3.8Ghz Cache 1MB 65W Socket AM4 [Tray] - 3 Core": {
+    "tier": "Bristol Ridge A6",
+    "brand": "AMD"
+  },
+  "AMD Bristol Ridge A6-9500 (Radeon R5 Series) 3.5Ghz Up To 3.8Ghz Cache 1MB 65W Socket AM4 [Tray] - 3 Core - NEW UNIT (with CUBE GAMING WIND V2 - 2 Copper Heat Pipes - Mirror RGB TOP Cover - Gaming CPU Cooler Rainbow Led) - 1 Years Warranty Replacement": {
+    "tier": "Bristol Ridge A6",
+    "brand": "AMD"
+  },
+  "AMD Bristol Ridge A6-9500E (Radeon R5 Series) 3.0Ghz Up to 3.4Ghz Cache 1MB 35W Socket AM4 [Tray] - 2 Core": {
+    "tier": "Bristol Ridge A6",
+    "brand": "AMD"
+  },
+  "AMD Bristol Ridge A6-9500E (Radeon R5 Series) 3.0Ghz Up to 3.4Ghz Cache 1MB 35W Socket AM4 [Tray] - 2 Core - NEW UNIT (with CUBE GAMING WIND V2 - 2 Copper Heat Pipes - Mirror RGB TOP Cover - Gaming CPU Cooler Rainbow Led) - 1 Years Warranty Replacement": {
+    "tier": "Bristol Ridge A6",
+    "brand": "AMD"
+  },
+  "AMD Bristol Ridge A8-9600 (Radeon R7 Series) 3.1Ghz Up To 3.4Ghz Cache 2MB 65W Socket AM4 [Box] - 4 Core - AD9600AGABBOX": {
+    "tier": "Bristol Ridge A8",
+    "brand": "AMD"
+  },
+  "AMD Carrizo A8-7680 (Radeon R7 Series) 3.5Ghz Cache 2MB 45W Socket FM2+ - D7680ACABBOX - With 65W Quiet Cooler": {
+    "tier": "Carrizo A8",
+    "brand": "AMD"
+  },
+  "AMD Godavari A6-7480 (Radeon R5 Series) 3.7Ghz Cache 2x1MB 65W Socket FM2+ - AD7480ACABBOX": {
+    "tier": "Godavari A6",
+    "brand": "AMD"
+  },
+  "Core 2 Duo, 3.0 Ghz (FSB 1333 Mhz) E8400 Cache 6 MB (BOX)": {
+    "tier": "Core 2 Duo E8400",
+    "brand": "Intel"
+  },
+  "Core 2 Duo, 3.0 Ghz (FSB 1333 Mhz) E8400 Cache 6 MB (Tray)": {
+    "tier": "Core 2 Duo E8400",
+    "brand": "Intel"
+  },
+  "Core 2 Duo, 3.16 Ghz (FSB 1333 Mhz) E8500 Cache 6 MB (Tray)": {
+    "tier": "Core 2 Duo E8500",
+    "brand": "Intel"
+  },
+  "Intel Core 2 Duo E8500 3.16Ghz FSB 1333 Mhz Cache 6MB [Tray] Socket LGA 775": {
+    "tier": "Core 2 Duo E8500",
+    "brand": "Intel"
+  }
+}

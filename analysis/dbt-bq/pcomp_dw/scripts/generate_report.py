@@ -6,7 +6,8 @@
 # ///
 """pcomp Local Price Intelligence & Dashboard Generator.
 
-Queries local JSON snapshots from indoscraping using embedded DuckDB
+Queries local JSON snapshots from indoscraping using embedded DuckDB,
+classifies hardware silicon dynamically via grammar rules + AI agent fallback (agy/pi),
 and renders a self-contained, interactive HTML dashboard with Chart.js.
 No BigQuery, no cloud credentials, and no external daemon needed.
 """
@@ -17,11 +18,14 @@ import argparse
 import json
 import logging
 import os
+import re
+import shutil
+import subprocess
 import sys
 import webbrowser
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 import duckdb
 
@@ -33,6 +37,16 @@ logging.basicConfig(
 logger = logging.getLogger("pcomp-report")
 
 DEFAULT_DATA_DIR = Path.home() / "Projects" / "indoscraping" / "data" / "hardware"
+DEFAULT_AI_CACHE_FILE = (
+    Path.home()
+    / "Projects"
+    / "sandbox-hub"
+    / "analysis"
+    / "dbt-bq"
+    / "pcomp_dw"
+    / "data"
+    / "ai_classified_hardware.json"
+)
 DEFAULT_OUTPUT_HTML = (
     Path.home()
     / "Projects"
@@ -45,8 +59,116 @@ DEFAULT_OUTPUT_HTML = (
 )
 
 
-def load_hardware_data(data_dir: Path) -> duckdb.DuckDBPyConnection:
-    """Load latest hardware json files into an in-memory DuckDB table."""
+def load_ai_cache(cache_file: Path) -> Dict[str, Dict[str, str]]:
+    """Load cached AI classifications from disk."""
+    if not cache_file.exists():
+        return {}
+    try:
+        with open(cache_file, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception as e:
+        logger.warning(f"Could not load AI cache from {cache_file}: {e}")
+        return {}
+
+
+def save_ai_cache(cache_file: Path, cache_data: Dict[str, Dict[str, str]]) -> None:
+    """Save AI classifications dictionary to disk."""
+    cache_file.parent.mkdir(parents=True, exist_ok=True)
+    with open(cache_file, "w", encoding="utf-8") as f:
+        json.dump(cache_data, f, indent=2, ensure_ascii=False)
+    logger.info(f"AI classification cache saved: {len(cache_data)} items at {cache_file}")
+
+
+def classify_with_agent(
+    names_to_classify: List[str],
+    agent: str = "auto",
+    batch_size: int = 15,
+) -> Dict[str, Dict[str, str]]:
+    """Classify unknown hardware product names using local CLI agents (agy or pi).
+
+    Tries agy (--dangerously-skip-permissions) or pi (-p --no-session --no-tools).
+    """
+    if not names_to_classify:
+        return {}
+
+    results: Dict[str, Dict[str, str]] = {}
+    batches = [
+        names_to_classify[i : i + batch_size]
+        for i in range(0, len(names_to_classify), batch_size)
+    ]
+
+    # Resolve executable
+    has_pi = shutil.which("pi") is not None
+    has_agy = shutil.which("agy") is not None
+
+    preferred_agent = agent
+    if preferred_agent == "auto":
+        # pi is dramatically faster for single-turn stateless JSON extraction (2s vs 20s)
+        preferred_agent = "pi" if has_pi else ("agy" if has_agy else "none")
+
+    if preferred_agent == "none":
+        logger.warning("Neither 'agy' nor 'pi' CLI was found. Skipping AI fallback classification.")
+        return {}
+
+    logger.info(
+        f"Invoking agent '{preferred_agent}' to classify {len(names_to_classify)} unclassified hardware items..."
+    )
+
+    for idx, batch in enumerate(batches, 1):
+        logger.info(f"Classifying batch {idx}/{len(batches)} ({len(batch)} items)...")
+        prompt = (
+            "You are an expert PC hardware classifier. Classify these computer hardware items into a single "
+            "JSON dictionary mapping the exact original name to {\"tier\": \"<silicon chip model or series>\", \"brand\": \"<brand name>\"}.\n"
+            "For tier, be specific to the chip/series family (e.g. 'RTX PRO 4500 Blackwell', 'Radeon 550', 'Bristol Ridge A8', 'Core 2 Duo').\n"
+            "Items to classify:\n"
+        )
+        for i, item in enumerate(batch, 1):
+            prompt += f"{i}. {item}\n"
+        prompt += "\nReturn ONLY a raw valid JSON object without markdown backticks, fences, or explanations."
+
+        cmd = []
+        timeout_seconds = 45
+        if preferred_agent == "pi":
+            cmd = ["pi", "-p", "--no-session", "--no-tools", prompt]
+            timeout_seconds = 30
+        elif preferred_agent == "agy":
+            cmd = ["agy", "--dangerously-skip-permissions", "-p", prompt]
+            timeout_seconds = 60
+
+        try:
+            res = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=timeout_seconds,
+            )
+            raw_output = res.stdout.strip()
+            # Strip markdown fences if agent included them
+            clean_output = re.sub(r"^```(?:json)?\s*", "", raw_output, flags=re.MULTILINE)
+            clean_output = re.sub(r"```\s*$", "", clean_output, flags=re.MULTILINE).strip()
+
+            parsed = json.loads(clean_output)
+            if isinstance(parsed, dict):
+                for k, v in parsed.items():
+                    if isinstance(v, dict) and "tier" in v:
+                        results[k] = {
+                            "tier": str(v.get("tier", "Standard")),
+                            "brand": str(v.get("brand", "Other")),
+                        }
+                logger.info(f"Successfully classified {len(parsed)} items in batch {idx}.")
+        except Exception as e:
+            logger.warning(f"Batch {idx} agent classification failed ({e}).")
+
+    return results
+
+
+def load_hardware_data(
+    data_dir: Path,
+    ai_cache_file: Path,
+    use_ai_fallback: bool = False,
+    agent: str = "auto",
+) -> duckdb.DuckDBPyConnection:
+    """Load latest hardware json files into an in-memory DuckDB table with dynamic grammar & AI cache."""
     conn = duckdb.connect(":memory:")
 
     glob_pattern = str(data_dir / "*" / "latest.json")
@@ -60,108 +182,162 @@ def load_hardware_data(data_dir: Path) -> duckdb.DuckDBPyConnection:
 
     logger.info(f"Ingesting {len(matching_files)} hardware catalog files from {data_dir}...")
 
-    # Comprehensive multi-category hardware parsing and tier extraction in DuckDB
+    # Load persistent AI cache into DuckDB
+    ai_cache = load_ai_cache(ai_cache_file)
+    conn.execute("CREATE TABLE ai_cache (name VARCHAR PRIMARY KEY, tier VARCHAR, brand VARCHAR)")
+    for name, info in ai_cache.items():
+        clean_k = re.sub(r"[\r\n\t]+", " ", name).strip()
+        clean_k = re.sub(r" +", " ", clean_k)
+        conn.execute(
+            "INSERT OR REPLACE INTO ai_cache VALUES (?, ?, ?)",
+            [clean_k, info.get("tier", "Standard"), info.get("brand", "Other")],
+        )
+
+    # First-pass raw catalog ingestion with cleaned whitespace & dynamic grammar extraction
     conn.execute(f"""
         CREATE TABLE raw_catalog AS 
+        WITH cleaned_input AS (
+            SELECT 
+                regexp_replace(regexp_replace(trim(name), '[\\r\\n\\t]+', ' ', 'g'), ' +', ' ', 'g') as name,
+                price,
+                source,
+                url,
+                COALESCE(scraped_at, CURRENT_TIMESTAMP::VARCHAR) as scraped_at,
+                CASE 
+                    WHEN lower(category) IN ('proc', 'processor') THEN 'CPU'
+                    WHEN lower(category) IN ('vga') THEN 'GPU'
+                    WHEN lower(category) IN ('memory', 'memory-ram') THEN 'RAM'
+                    WHEN lower(category) IN ('storage', 'solid-state-drive', 'hard-disk') THEN 'Storage'
+                    WHEN lower(category) IN ('motherboard') THEN 'Motherboard'
+                    WHEN lower(category) IN ('psu') THEN 'PSU'
+                    WHEN lower(category) IN ('casing') THEN 'Casing'
+                    WHEN lower(category) IN ('lcd') THEN 'Monitor'
+                    WHEN lower(category) IN ('cooler') THEN 'Cooler'
+                    WHEN lower(category) IN ('keyboard', 'keymouse') THEN 'Peripheral'
+                    ELSE 'Other'
+                END AS std_category
+            FROM read_json_auto('{glob_pattern}')
+            WHERE price > 0
+        )
         SELECT 
-            name,
-            price,
-            source,
-            url,
-            COALESCE(scraped_at, CURRENT_TIMESTAMP::VARCHAR) as scraped_at,
+            ci.name,
+            ci.price,
+            ci.source,
+            ci.url,
+            ci.scraped_at,
+            ci.std_category,
+            COALESCE(
+                ac.brand,
+                NULLIF(regexp_extract(ci.name, '(?i)(Asus|ROG|TUF|MSI|Gigabyte|Aorus|ASRock|Zotac|Colorful|Palit|Galax|Sapphire|PowerColor|XFX|Inno3D|Kingston|Samsung|Corsair|Adata|XPG|Team|Teamgroup|Klevv|Lexar|Seagate|WD|Western Digital|Deepcool|Thermalright|Seasonic|FSP|be quiet|Cooler Master|NZXT|Fractal|Lian Li|Antec|Thermaltake|Silverstone|Leadtek|VenomRX|Acer|AOC|ViewSonic|BenQ|LG|Dell|Lenovo|Philips|Logitech|Razer|SteelSeries)', 1), ''),
+                'Other'
+            ) AS brand,
+            COALESCE(
+                ac.tier,
+                CASE 
+                    -- Dynamic GPU Grammar (NVIDIA RTX/GTX/GT/Quadro, AMD RX/Radeon, Intel Arc)
+                    WHEN ci.std_category = 'GPU' AND regexp_matches(ci.name, '(?i)\\b(RTX\\s*\\d{{3,4}}M?(?:\\s*(?:Ti\\s*SUPER|Ti|SUPER))?|GTX\\s*\\d{{3,4}}M?(?:\\s*Ti)?|GT\\s*\\d{{3,4}}|RX\\s*\\d{{3,4}}(?:\\s*(?:XTX|XT|GRE))?|Radeon\\s*(?:AI\\s*PRO\\s*|PRO\\s*)?(?:W\\d{{4}}|WX\\d{{4}}|R?\\d{{4}})[A-Z]*|Arc\\s*(?:Pro\\s*)?[A-Z]?\\d{{2,3}}|Quadro\\s*(?:RTX\\s*)?[A-Z0-9]+)\\b')
+                        THEN upper(regexp_replace(regexp_extract(ci.name, '(?i)\\b(RTX\\s*\\d{{3,4}}M?(?:\\s*(?:Ti\\s*SUPER|Ti|SUPER))?|GTX\\s*\\d{{3,4}}M?(?:\\s*Ti)?|GT\\s*\\d{{3,4}}|RX\\s*\\d{{3,4}}(?:\\s*(?:XTX|XT|GRE))?|Radeon\\s*(?:AI\\s*PRO\\s*|PRO\\s*)?(?:W\\d{{4}}|WX\\d{{4}}|R?\\d{{4}})[A-Z]*|Arc\\s*(?:Pro\\s*)?[A-Z]?\\d{{2,3}}|Quadro\\s*(?:RTX\\s*)?[A-Z0-9]+)\\b', 1), '\\s+', ' ', 'g'))
+
+                    -- Dynamic CPU Grammar (AMD Ryzen 9/7/5/3, Threadripper, EPYC, Intel Core Ultra, Core i9/i7/i5/i3, Xeon, Pentium, Celeron)
+                    WHEN ci.std_category = 'CPU' AND lower(ci.name) LIKE '%threadripper%' THEN 'AMD Threadripper'
+                    WHEN ci.std_category = 'CPU' AND lower(ci.name) LIKE '%epyc%' THEN 'AMD EPYC'
+                    WHEN ci.std_category = 'CPU' AND regexp_matches(ci.name, '(?i)Ryzen\\s*(?:PRO\\s*)?9') THEN 'AMD Ryzen 9'
+                    WHEN ci.std_category = 'CPU' AND regexp_matches(ci.name, '(?i)Ryzen\\s*(?:PRO\\s*)?7') THEN 'AMD Ryzen 7'
+                    WHEN ci.std_category = 'CPU' AND regexp_matches(ci.name, '(?i)Ryzen\\s*(?:PRO\\s*)?5') THEN 'AMD Ryzen 5'
+                    WHEN ci.std_category = 'CPU' AND regexp_matches(ci.name, '(?i)Ryzen\\s*(?:PRO\\s*)?3') THEN 'AMD Ryzen 3'
+                    WHEN ci.std_category = 'CPU' AND regexp_matches(ci.name, '(?i)Core\\s*Ultra\\s*9') THEN 'Intel Core Ultra 9'
+                    WHEN ci.std_category = 'CPU' AND regexp_matches(ci.name, '(?i)Core\\s*Ultra\\s*7') THEN 'Intel Core Ultra 7'
+                    WHEN ci.std_category = 'CPU' AND regexp_matches(ci.name, '(?i)Core\\s*Ultra\\s*5') THEN 'Intel Core Ultra 5'
+                    WHEN ci.std_category = 'CPU' AND regexp_matches(ci.name, '(?i)Core\\s*i9') THEN 'Intel Core i9'
+                    WHEN ci.std_category = 'CPU' AND regexp_matches(ci.name, '(?i)Core\\s*i7') THEN 'Intel Core i7'
+                    WHEN ci.std_category = 'CPU' AND regexp_matches(ci.name, '(?i)Core\\s*i5') THEN 'Intel Core i5'
+                    WHEN ci.std_category = 'CPU' AND regexp_matches(ci.name, '(?i)Core\\s*i3') THEN 'Intel Core i3'
+                    WHEN ci.std_category = 'CPU' AND lower(ci.name) LIKE '%xeon%' THEN 'Intel Xeon'
+                    WHEN ci.std_category = 'CPU' AND lower(ci.name) LIKE '%pentium%' THEN 'Intel Pentium'
+                    WHEN ci.std_category = 'CPU' AND lower(ci.name) LIKE '%athlon%' THEN 'AMD Athlon'
+                    WHEN ci.std_category = 'CPU' AND lower(ci.name) LIKE '%celeron%' THEN 'Intel Celeron'
+
+                    -- Dynamic RAM Grammar (DDR5 / DDR4 capacities)
+                    WHEN ci.std_category = 'RAM' AND regexp_matches(ci.name, '(?i)\\bDDR5\\b') AND regexp_matches(ci.name, '(?i)\\b(8|16|24|32|48|64|96|128)\\s*GB\\b')
+                        THEN 'DDR5 ' || regexp_extract(ci.name, '(?i)\\b(8|16|24|32|48|64|96|128)\\s*GB\\b', 1) || 'GB'
+                    WHEN ci.std_category = 'RAM' AND regexp_matches(ci.name, '(?i)\\bDDR4\\b') AND regexp_matches(ci.name, '(?i)\\b(8|16|24|32|48|64)\\s*GB\\b')
+                        THEN 'DDR4 ' || regexp_extract(ci.name, '(?i)\\b(8|16|24|32|48|64)\\s*GB\\b', 1) || 'GB'
+                    WHEN ci.std_category = 'RAM' AND regexp_matches(ci.name, '(?i)\\bDDR3\\b') THEN 'DDR3'
+
+                    -- Dynamic Storage Grammar (NVMe / SATA / HDD / Flash)
+                    WHEN ci.std_category = 'Storage' AND regexp_matches(ci.name, '(?i)\\b(NVMe|PCIe|M\\.2)\\b') AND regexp_matches(ci.name, '(?i)\\b(4|2|1)\\s*TB\\b')
+                        THEN 'NVMe ' || regexp_extract(ci.name, '(?i)\\b(4|2|1)\\s*TB\\b', 1) || 'TB'
+                    WHEN ci.std_category = 'Storage' AND regexp_matches(ci.name, '(?i)\\b(NVMe|PCIe|M\\.2)\\b') AND regexp_matches(ci.name, '(?i)\\b(500|512|250|256)\\s*GB\\b')
+                        THEN 'NVMe ' || regexp_extract(ci.name, '(?i)\\b(500|512|250|256)\\s*GB\\b', 1) || 'GB'
+                    WHEN ci.std_category = 'Storage' AND regexp_matches(ci.name, '(?i)\\bSATA\\b') AND regexp_matches(ci.name, '(?i)\\b(2|1)\\s*TB\\b')
+                        THEN 'SATA ' || regexp_extract(ci.name, '(?i)\\b(2|1)\\s*TB\\b', 1) || 'TB'
+                    WHEN ci.std_category = 'Storage' AND regexp_matches(ci.name, '(?i)\\bSATA\\b') AND regexp_matches(ci.name, '(?i)\\b(500|512|240|256|120|128)\\s*GB\\b')
+                        THEN 'SATA ' || regexp_extract(ci.name, '(?i)\\b(500|512|240|256|120|128)\\s*GB\\b', 1) || 'GB'
+                    WHEN ci.std_category = 'Storage' AND regexp_matches(ci.name, '(?i)\\bSSD\\b') AND regexp_matches(ci.name, '(?i)\\b(4|2|1)\\s*TB\\b')
+                        THEN 'SSD ' || regexp_extract(ci.name, '(?i)\\b(4|2|1)\\s*TB\\b', 1) || 'TB'
+                    WHEN ci.std_category = 'Storage' AND regexp_matches(ci.name, '(?i)\\bSSD\\b') AND regexp_matches(ci.name, '(?i)\\b(500|512|250|256|120|128)\\s*GB\\b')
+                        THEN 'SSD ' || regexp_extract(ci.name, '(?i)\\b(500|512|250|256|120|128)\\s*GB\\b', 1) || 'GB'
+                    WHEN ci.std_category = 'Storage' AND regexp_matches(ci.name, '(?i)\\b(HDD|Hard Disk|IronWolf|SkyHawk|BarraCuda|WD Purple|WD Red)\\b') THEN 'HDD'
+                    WHEN ci.std_category = 'Storage' AND regexp_matches(ci.name, '(?i)\\b(MicroSD|SDHC|SDXC|Flashdisk|Flash Drive|Cruzer)\\b') THEN 'Flash / SD'
+
+                    -- Dynamic Motherboard Chipsets (Intel Z/B/H/W, AMD X/B/A/TRX/WRX)
+                    WHEN ci.std_category = 'Motherboard' AND regexp_matches(ci.name, '(?i)\\b(Z890|Z790|Z690|B860|B760|B660|H810|H610|H510|W790)\\b')
+                        THEN 'Intel ' || upper(regexp_extract(ci.name, '(?i)\\b(Z890|Z790|Z690|B860|B760|B660|H810|H610|H510|W790)\\b', 1))
+                    WHEN ci.std_category = 'Motherboard' AND regexp_matches(ci.name, '(?i)\\b(X870E|X870|X670E|X670|B850|B650E|B650|B550|A620|B450|A520|A320|WRX90|TRX50)\\b')
+                        THEN 'AMD ' || upper(regexp_extract(ci.name, '(?i)\\b(X870E|X870|X670E|X670|B850|B650E|B650|B550|A620|B450|A520|A320|WRX90|TRX50)\\b', 1))
+
+                    -- Dynamic PSU Wattage
+                    WHEN ci.std_category = 'PSU' AND TRY_CAST(regexp_extract(ci.name, '(?i)\\b(\\d{{3,4}})\\s*W\\b', 1) AS INT) >= 1000 THEN '1000W+'
+                    WHEN ci.std_category = 'PSU' AND TRY_CAST(regexp_extract(ci.name, '(?i)\\b(\\d{{3,4}})\\s*W\\b', 1) AS INT) >= 850 THEN '850W'
+                    WHEN ci.std_category = 'PSU' AND TRY_CAST(regexp_extract(ci.name, '(?i)\\b(\\d{{3,4}})\\s*W\\b', 1) AS INT) >= 750 THEN '750W'
+                    WHEN ci.std_category = 'PSU' AND TRY_CAST(regexp_extract(ci.name, '(?i)\\b(\\d{{3,4}})\\s*W\\b', 1) AS INT) >= 650 THEN '650W'
+                    WHEN ci.std_category = 'PSU' AND TRY_CAST(regexp_extract(ci.name, '(?i)\\b(\\d{{3,4}})\\s*W\\b', 1) AS INT) >= 550 THEN '550W'
+                    WHEN ci.std_category = 'PSU' AND TRY_CAST(regexp_extract(ci.name, '(?i)\\b(\\d{{3,4}})\\s*W\\b', 1) AS INT) >= 500 THEN '500W'
+                    WHEN ci.std_category = 'PSU' AND TRY_CAST(regexp_extract(ci.name, '(?i)\\b(\\d{{3,4}})\\s*W\\b', 1) AS INT) >= 400 THEN '400W-450W'
+
+                    ELSE 'Standard'
+                END
+            ) AS tier,
             CASE 
-                WHEN lower(category) IN ('proc', 'processor') THEN 'CPU'
-                WHEN lower(category) IN ('vga') THEN 'GPU'
-                WHEN lower(category) IN ('memory', 'memory-ram') THEN 'RAM'
-                WHEN lower(category) IN ('storage', 'solid-state-drive', 'hard-disk') THEN 'Storage'
-                WHEN lower(category) IN ('motherboard') THEN 'Motherboard'
-                WHEN lower(category) IN ('psu') THEN 'PSU'
-                WHEN lower(category) IN ('casing') THEN 'Casing'
-                WHEN lower(category) IN ('lcd') THEN 'Monitor'
-                WHEN lower(category) IN ('cooler') THEN 'Cooler'
-                WHEN lower(category) IN ('keyboard', 'keymouse') THEN 'Peripheral'
-                ELSE 'Other'
-            END AS std_category,
-            COALESCE(NULLIF(regexp_extract(name, '(?i)(Asus|MSI|Gigabyte|ASRock|Zotac|Colorful|Palit|Galax|Sapphire|PowerColor|XFX|Inno3D|Kingston|Samsung|Corsair|Adata|Team|Klevv|Lexar|Seagate|WD|Western Digital|Deepcool|Thermalright|Seasonic|FSP|be quiet|Cooler Master|NZXT|Fractal|Lian Li|Antec|Thermaltake|Silverstone)', 1), ''), 'Other') AS brand,
-            CASE 
-                -- GPU Tiers
-                WHEN lower(category) = 'vga' AND lower(name) LIKE '%rtx 4090%' THEN 'RTX 4090'
-                WHEN lower(category) = 'vga' AND lower(name) LIKE '%rtx 4080%' THEN 'RTX 4080'
-                WHEN lower(category) = 'vga' AND lower(name) LIKE '%rtx 4070 ti%' THEN 'RTX 4070 Ti'
-                WHEN lower(category) = 'vga' AND lower(name) LIKE '%rtx 4070%' THEN 'RTX 4070'
-                WHEN lower(category) = 'vga' AND lower(name) LIKE '%rtx 4060 ti%' THEN 'RTX 4060 Ti'
-                WHEN lower(category) = 'vga' AND lower(name) LIKE '%rtx 4060%' THEN 'RTX 4060'
-                WHEN lower(category) = 'vga' AND lower(name) LIKE '%rtx 3060%' THEN 'RTX 3060'
-                WHEN lower(category) = 'vga' AND lower(name) LIKE '%rx 7900%' THEN 'RX 7900'
-                WHEN lower(category) = 'vga' AND lower(name) LIKE '%rx 7800%' THEN 'RX 7800'
-                WHEN lower(category) = 'vga' AND lower(name) LIKE '%rx 7700%' THEN 'RX 7700'
-                WHEN lower(category) = 'vga' AND lower(name) LIKE '%rx 6600%' THEN 'RX 6600'
-                WHEN lower(category) = 'vga' AND (lower(name) LIKE '%arc a770%' OR lower(name) LIKE '%arc a750%') THEN 'Intel Arc'
-
-                -- CPU Tiers
-                WHEN lower(category) IN ('proc', 'processor') AND lower(name) LIKE '%ryzen 9%' THEN 'AMD Ryzen 9'
-                WHEN lower(category) IN ('proc', 'processor') AND lower(name) LIKE '%ryzen 7%' THEN 'AMD Ryzen 7'
-                WHEN lower(category) IN ('proc', 'processor') AND lower(name) LIKE '%ryzen 5%' THEN 'AMD Ryzen 5'
-                WHEN lower(category) IN ('proc', 'processor') AND lower(name) LIKE '%ryzen 3%' THEN 'AMD Ryzen 3'
-                WHEN lower(category) IN ('proc', 'processor') AND lower(name) LIKE '%core i9%' THEN 'Intel Core i9'
-                WHEN lower(category) IN ('proc', 'processor') AND lower(name) LIKE '%core i7%' THEN 'Intel Core i7'
-                WHEN lower(category) IN ('proc', 'processor') AND lower(name) LIKE '%core i5%' THEN 'Intel Core i5'
-                WHEN lower(category) IN ('proc', 'processor') AND lower(name) LIKE '%core i3%' THEN 'Intel Core i3'
-
-                -- RAM Tiers
-                WHEN lower(category) IN ('memory', 'memory-ram') AND lower(name) LIKE '%ddr5%' AND lower(name) LIKE '%32gb%' THEN 'DDR5 32GB'
-                WHEN lower(category) IN ('memory', 'memory-ram') AND lower(name) LIKE '%ddr5%' AND lower(name) LIKE '%16gb%' THEN 'DDR5 16GB'
-                WHEN lower(category) IN ('memory', 'memory-ram') AND lower(name) LIKE '%ddr5%' AND lower(name) LIKE '%64gb%' THEN 'DDR5 64GB'
-                WHEN lower(category) IN ('memory', 'memory-ram') AND lower(name) LIKE '%ddr4%' AND lower(name) LIKE '%32gb%' THEN 'DDR4 32GB'
-                WHEN lower(category) IN ('memory', 'memory-ram') AND lower(name) LIKE '%ddr4%' AND lower(name) LIKE '%16gb%' THEN 'DDR4 16GB'
-                WHEN lower(category) IN ('memory', 'memory-ram') AND lower(name) LIKE '%ddr4%' AND lower(name) LIKE '%8gb%' THEN 'DDR4 8GB'
-
-                -- Storage Tiers
-                WHEN lower(category) IN ('storage', 'solid-state-drive') AND lower(name) LIKE '%nvme%' AND lower(name) LIKE '%2tb%' THEN 'NVMe 2TB'
-                WHEN lower(category) IN ('storage', 'solid-state-drive') AND lower(name) LIKE '%nvme%' AND (lower(name) LIKE '%1tb%' OR lower(name) LIKE '%1000gb%') THEN 'NVMe 1TB'
-                WHEN lower(category) IN ('storage', 'solid-state-drive') AND lower(name) LIKE '%nvme%' AND (lower(name) LIKE '%500gb%' OR lower(name) LIKE '%512gb%') THEN 'NVMe 500GB'
-                WHEN lower(category) IN ('storage', 'solid-state-drive') AND lower(name) LIKE '%sata%' AND (lower(name) LIKE '%1tb%' OR lower(name) LIKE '%1000gb%') THEN 'SATA 1TB'
-                WHEN lower(category) IN ('storage', 'solid-state-drive') AND lower(name) LIKE '%sata%' AND (lower(name) LIKE '%500gb%' OR lower(name) LIKE '%512gb%') THEN 'SATA 500GB'
-                WHEN lower(category) IN ('storage', 'solid-state-drive') AND (lower(name) LIKE '%hdd%' OR lower(name) LIKE '%hard disk%') THEN 'HDD'
-
-                -- Motherboard Tiers
-                WHEN lower(category) = 'motherboard' AND (lower(name) LIKE '%z790%' OR lower(name) LIKE '%z890%') THEN 'Intel Z790/Z890'
-                WHEN lower(category) = 'motherboard' AND lower(name) LIKE '%b760%' THEN 'Intel B760'
-                WHEN lower(category) = 'motherboard' AND lower(name) LIKE '%h610%' THEN 'Intel H610'
-                WHEN lower(category) = 'motherboard' AND (lower(name) LIKE '%x670%' OR lower(name) LIKE '%x870%') THEN 'AMD X670/X870'
-                WHEN lower(category) = 'motherboard' AND lower(name) LIKE '%b650%' THEN 'AMD B650'
-                WHEN lower(category) = 'motherboard' AND lower(name) LIKE '%b550%' THEN 'AMD B550'
-                WHEN lower(category) = 'motherboard' AND lower(name) LIKE '%a620%' THEN 'AMD A620'
-
-                -- PSU Tiers
-                WHEN lower(category) = 'psu' AND (lower(name) LIKE '%1000w%' OR lower(name) LIKE '%1200w%') THEN '1000W+'
-                WHEN lower(category) = 'psu' AND lower(name) LIKE '%850w%' THEN '850W'
-                WHEN lower(category) = 'psu' AND lower(name) LIKE '%750w%' THEN '750W'
-                WHEN lower(category) = 'psu' AND lower(name) LIKE '%650w%' THEN '650W'
-                WHEN lower(category) = 'psu' AND lower(name) LIKE '%550w%' THEN '550W'
-                WHEN lower(category) = 'psu' AND lower(name) LIKE '%500w%' THEN '500W'
-
-                ELSE 'Standard'
-            END AS tier,
-            CASE 
-                WHEN lower(name) LIKE '%tray%' THEN 'Tray'
-                WHEN lower(name) LIKE '%box%' THEN 'Box'
+                WHEN lower(ci.name) LIKE '%tray%' THEN 'Tray'
+                WHEN lower(ci.name) LIKE '%box%' THEN 'Box'
                 ELSE 'Standard'
             END AS packaging,
             CASE 
-                WHEN lower(category) IN ('storage', 'solid-state-drive', 'memory', 'memory-ram') THEN
-                    ROUND(price / NULLIF(
+                WHEN ci.std_category IN ('Storage', 'RAM') THEN
+                    ROUND(ci.price / NULLIF(
                         CASE 
-                            WHEN upper(regexp_extract(name, '(?i)(\\d+)\\s*(GB|TB)', 2)) = 'TB' 
-                            THEN TRY_CAST(regexp_extract(name, '(?i)(\\d+)\\s*(GB|TB)', 1) AS INT) * 1000
-                            ELSE TRY_CAST(regexp_extract(name, '(?i)(\\d+)\\s*(GB|TB)', 1) AS INT)
+                            WHEN upper(regexp_extract(ci.name, '(?i)(\\d+)\\s*(GB|TB)', 2)) = 'TB' 
+                            THEN TRY_CAST(regexp_extract(ci.name, '(?i)(\\d+)\\s*(GB|TB)', 1) AS INT) * 1000
+                            ELSE TRY_CAST(regexp_extract(ci.name, '(?i)(\\d+)\\s*(GB|TB)', 1) AS INT)
                         END, 0
                     ))
                 ELSE NULL
-            END AS price_per_gb
-        FROM read_json_auto('{glob_pattern}')
-        WHERE price > 0
+            END AS price_per_gb,
+            (ac.tier IS NOT NULL) AS is_ai_classified
+        FROM cleaned_input ci
+        LEFT JOIN ai_cache ac ON ac.name = ci.name
     """)
+
+    # Check unclassified items in critical categories (GPU, CPU)
+    unclassified_rows = conn.execute("""
+        SELECT DISTINCT name, std_category 
+        FROM raw_catalog 
+        WHERE tier = 'Standard' AND std_category IN ('GPU', 'CPU')
+    """).fetchall()
+
+    if unclassified_rows and use_ai_fallback:
+        unclassified_names = [r[0] for r in unclassified_rows]
+        new_classifications = classify_with_agent(
+            unclassified_names, agent=agent, batch_size=15
+        )
+        if new_classifications:
+            ai_cache.update(new_classifications)
+            save_ai_cache(ai_cache_file, ai_cache)
+            # Re-run ingestion to apply newly cached classifications
+            return load_hardware_data(
+                data_dir, ai_cache_file, use_ai_fallback=False, agent=agent
+            )
 
     return conn
 
@@ -186,6 +362,11 @@ def extract_analytics(conn: duckdb.DuckDBPyConnection) -> Dict[str, Any]:
             max(price) as max_price,
             count(*) FILTER (WHERE source = 'enterkomputer') as count_enterkomputer,
             count(*) FILTER (WHERE source = 'viraindo') as count_viraindo,
+            count(*) FILTER (WHERE tier != 'Standard') as count_classified,
+            count(*) FILTER (WHERE is_ai_classified = true) as count_ai_classified,
+            count(*) FILTER (WHERE std_category IN ('GPU', 'CPU')) as count_core_silicon,
+            count(*) FILTER (WHERE std_category IN ('GPU', 'CPU') AND tier != 'Standard') as count_core_classified,
+            count(*) FILTER (WHERE tier = 'Standard' AND std_category IN ('GPU', 'CPU')) as count_unclassified_chips,
             max(scraped_at) as last_updated
         FROM raw_catalog
     """)[0]
@@ -214,46 +395,56 @@ def extract_analytics(conn: duckdb.DuckDBPyConnection) -> Dict[str, Any]:
         ORDER BY total_count DESC
     """)
 
-    # 4. GPU Benchmarks
+    # 4. GPU Benchmarks (Top 25 Models sorted by median price)
     gpu_benchmarks = query_to_dicts(conn, """
         SELECT tier, count(*) as count, min(price) as min_price, median(price)::int as median_price, avg(price)::int as avg_price, max(price) as max_price
         FROM raw_catalog WHERE std_category = 'GPU' AND tier != 'Standard'
-        GROUP BY tier ORDER BY avg_price DESC
+        GROUP BY tier 
+        ORDER BY median_price DESC
+        LIMIT 25
     """)
 
-    # 5. CPU Benchmarks
+    # 5. CPU Benchmarks (Series benchmarks sorted by median price)
     cpu_benchmarks = query_to_dicts(conn, """
         SELECT tier, count(*) as count, min(price) as min_price, median(price)::int as median_price, avg(price)::int as avg_price, max(price) as max_price
         FROM raw_catalog WHERE std_category = 'CPU' AND tier != 'Standard'
-        GROUP BY tier ORDER BY avg_price DESC
+        GROUP BY tier 
+        ORDER BY median_price DESC
     """)
 
     # 6. RAM Benchmarks
     ram_benchmarks = query_to_dicts(conn, """
         SELECT tier, count(*) as count, min(price) as min_price, median(price)::int as median_price, avg(price)::int as avg_price, max(price) as max_price
         FROM raw_catalog WHERE std_category = 'RAM' AND tier != 'Standard'
-        GROUP BY tier ORDER BY avg_price DESC
+        GROUP BY tier 
+        ORDER BY median_price DESC
+        LIMIT 15
     """)
 
     # 7. Storage Benchmarks
     storage_benchmarks = query_to_dicts(conn, """
         SELECT tier, count(*) as count, min(price) as min_price, median(price)::int as median_price, avg(price)::int as avg_price, max(price) as max_price, avg(price_per_gb)::int as avg_price_per_gb
         FROM raw_catalog WHERE std_category = 'Storage' AND tier != 'Standard'
-        GROUP BY tier ORDER BY avg_price DESC
+        GROUP BY tier 
+        ORDER BY median_price DESC
+        LIMIT 15
     """)
 
     # 8. Motherboard Benchmarks
     mobo_benchmarks = query_to_dicts(conn, """
         SELECT tier, count(*) as count, min(price) as min_price, median(price)::int as median_price, avg(price)::int as avg_price, max(price) as max_price
         FROM raw_catalog WHERE std_category = 'Motherboard' AND tier != 'Standard'
-        GROUP BY tier ORDER BY avg_price DESC
+        GROUP BY tier 
+        ORDER BY median_price DESC
+        LIMIT 20
     """)
 
     # 9. PSU Benchmarks
     psu_benchmarks = query_to_dicts(conn, """
         SELECT tier, count(*) as count, min(price) as min_price, median(price)::int as median_price, avg(price)::int as avg_price, max(price) as max_price
         FROM raw_catalog WHERE std_category = 'PSU' AND tier != 'Standard'
-        GROUP BY tier ORDER BY avg_price DESC
+        GROUP BY tier 
+        ORDER BY median_price DESC
     """)
 
     # 10. Tray vs Box CPU Premium
@@ -270,7 +461,7 @@ def extract_analytics(conn: duckdb.DuckDBPyConnection) -> Dict[str, Any]:
         ORDER BY count DESC
     """)
 
-    # 11. Full Products Table (All 7,966+ rows)
+    # 11. Full Products Table (All products)
     table_items = query_to_dicts(conn, """
         SELECT 
             name,
@@ -281,6 +472,8 @@ def extract_analytics(conn: duckdb.DuckDBPyConnection) -> Dict[str, Any]:
             source,
             price,
             price_per_gb,
+            is_ai_classified,
+            (tier = 'Standard' AND std_category IN ('GPU', 'CPU')) as is_unclassified_chip,
             url
         FROM raw_catalog
         ORDER BY std_category, price ASC
@@ -400,23 +593,27 @@ def render_html_report(analytics: Dict[str, Any], output_path: Path) -> None:
       text-transform: uppercase;
       letter-spacing: 0.05em;
       color: var(--text-muted);
-      margin-bottom: 0.4rem;
+      margin-bottom: 0.35rem;
     }}
     .kpi-value {{
-      font-size: 1.75rem;
-      font-weight: 800;
-      color: #ffffff;
-      letter-spacing: -0.02em;
+      font-size: 1.6rem;
+      font-weight: 700;
+      color: #fff;
+      font-variant-numeric: tabular-nums;
     }}
-    .kpi-subtext {{ font-size: 0.8rem; color: var(--text-muted); margin-top: 0.25rem; }}
+    .kpi-subtext {{
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      margin-top: 0.25rem;
+    }}
 
-    /* Category Nav Tabs */
+    /* Section Tabs */
     .section-nav {{
       display: flex;
       gap: 0.5rem;
-      margin-bottom: 1.5rem;
       border-bottom: 1px solid var(--card-border);
       padding-bottom: 0.75rem;
+      margin-bottom: 1.5rem;
       overflow-x: auto;
     }}
     .nav-tab {{
@@ -428,27 +625,28 @@ def render_html_report(analytics: Dict[str, Any], output_path: Path) -> None:
       font-size: 0.9rem;
       font-weight: 600;
       cursor: pointer;
-      display: flex;
-      align-items: center;
-      gap: 0.4rem;
       white-space: nowrap;
-      transition: all 0.15s ease;
+      transition: all 0.2s ease;
     }}
-    .nav-tab:hover {{ color: var(--text-main); background: #1f293d; }}
+    .nav-tab:hover {{
+      color: var(--text-main);
+      background: #172236;
+    }}
     .nav-tab.active {{
       background: #1e293b;
       color: var(--accent-cyan);
       border-color: var(--accent-cyan);
     }}
 
-    /* Charts Section */
     .tab-content {{ display: none; }}
     .tab-content.active {{ display: block; }}
+
+    /* Charts Layout */
     .charts-grid {{
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(480px, 1fr));
+      grid-template-columns: repeat(auto-fit, minmax(460px, 1fr));
       gap: 1.5rem;
-      margin-bottom: 2.5rem;
+      margin-bottom: 2rem;
     }}
     .chart-card {{
       background: var(--card-bg);
@@ -456,45 +654,62 @@ def render_html_report(analytics: Dict[str, Any], output_path: Path) -> None:
       border-radius: 12px;
       padding: 1.5rem;
     }}
-    .chart-card h2 {{ font-size: 1.1rem; font-weight: 600; margin-bottom: 0.25rem; }}
-    .chart-card p {{ font-size: 0.8rem; color: var(--text-muted); margin-bottom: 1.25rem; }}
-    .chart-container {{ position: relative; width: 100%; height: 290px; }}
+    .chart-card h2 {{
+      font-size: 1.05rem;
+      font-weight: 600;
+      margin-bottom: 0.25rem;
+    }}
+    .chart-card p {{
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      margin-bottom: 1rem;
+    }}
+    .chart-container {{
+      position: relative;
+      height: 300px;
+      width: 100%;
+    }}
 
-    /* Table & Explorer Section */
+    /* Explorer Table */
     .explorer-card {{
       background: var(--card-bg);
       border: 1px solid var(--card-border);
       border-radius: 12px;
       padding: 1.5rem;
+      margin-top: 2rem;
     }}
     .explorer-header {{
       display: flex;
       justify-content: space-between;
       align-items: center;
+      margin-bottom: 1.25rem;
       flex-wrap: wrap;
       gap: 1rem;
-      margin-bottom: 1.25rem;
     }}
     .explorer-controls {{
       display: flex;
-      flex-wrap: wrap;
+      flex-direction: column;
       gap: 0.75rem;
-      align-items: center;
-      width: 100%;
+      margin-bottom: 1.25rem;
     }}
     .search-input {{
-      flex: 1;
-      min-width: 240px;
       background: #0d131f;
-      border: 1px solid #2d3748;
+      border: 1px solid var(--card-border);
+      color: var(--text-main);
+      padding: 0.65rem 1rem;
       border-radius: 8px;
-      padding: 0.6rem 1rem;
-      color: white;
       font-size: 0.9rem;
-      outline: none;
+      width: 100%;
     }}
-    .search-input:focus {{ border-color: var(--accent-cyan); }}
-    .filter-btn-group {{ display: flex; gap: 0.4rem; flex-wrap: wrap; }}
+    .search-input:focus {{
+      outline: none;
+      border-color: var(--accent-cyan);
+    }}
+    .filter-btn-group {{
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+    }}
     .filter-btn {{
       background: #1f2937;
       border: 1px solid #374151;
@@ -510,6 +725,16 @@ def render_html_report(analytics: Dict[str, Any], output_path: Path) -> None:
       color: #000;
       font-weight: 700;
       border-color: var(--accent-cyan);
+    }}
+    .filter-btn-alert {{
+      background: rgba(244, 63, 94, 0.15);
+      border-color: rgba(244, 63, 94, 0.4);
+      color: #fb7185;
+    }}
+    .filter-btn-alert.active {{
+      background: var(--accent-rose);
+      color: #fff;
+      border-color: var(--accent-rose);
     }}
     .table-container {{
       overflow-x: auto;
@@ -548,6 +773,8 @@ def render_html_report(analytics: Dict[str, Any], output_path: Path) -> None:
     .badge-tier {{ background: #334155; color: #cbd5e1; }}
     .badge-brand {{ background: #1e1b4b; color: #a5b4fc; border: 1px solid #4338ca; }}
     .badge-unit {{ background: #064e3b; color: #6ee7b7; font-size: 0.7rem; }}
+    .badge-ai {{ background: rgba(139, 92, 246, 0.25); color: #c084fc; border: 1px solid rgba(139, 92, 246, 0.4); font-size: 0.7rem; }}
+    .badge-unclassified {{ background: rgba(244, 63, 94, 0.25); color: #fb7185; border: 1px solid rgba(244, 63, 94, 0.5); }}
     .price-cell {{
       font-weight: 700;
       color: var(--accent-emerald);
@@ -585,7 +812,7 @@ def render_html_report(analytics: Dict[str, Any], output_path: Path) -> None:
       </div>
     </div>
     <div class="header-badge">
-      Generated: <strong>{analytics["generated_at"]}</strong> • Engine: <strong>DuckDB (Local-First)</strong>
+      Generated: <strong>{analytics["generated_at"]}</strong> • Engine: <strong>DuckDB + Dynamic Grammar & AI Fallback</strong>
     </div>
   </header>
 
@@ -595,6 +822,11 @@ def render_html_report(analytics: Dict[str, Any], output_path: Path) -> None:
       <div class="kpi-label">Total Tracked Products</div>
       <div class="kpi-value">{analytics["kpis"]["total_items"]:,}</div>
       <div class="kpi-subtext">{analytics["kpis"]["total_categories"]} hardware categories</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-label">Silicon Recognition</div>
+      <div class="kpi-value">{round((analytics["kpis"]["count_core_classified"] / max(analytics["kpis"]["count_core_silicon"], 1)) * 100, 1)}%</div>
+      <div class="kpi-subtext">{analytics["kpis"]["count_classified"]:,} hardware tiered ({analytics["kpis"]["count_ai_classified"]} by AI cache)</div>
     </div>
     <div class="kpi-card">
       <div class="kpi-label">EnterKomputer Catalog</div>
@@ -647,9 +879,9 @@ def render_html_report(analytics: Dict[str, Any], output_path: Path) -> None:
   <div id="tab-gpu" class="tab-content">
     <section class="charts-grid">
       <div class="chart-card" style="grid-column: 1 / -1;">
-        <h2>GPU Series Price Benchmarks (Median IDR)</h2>
-        <p>Market benchmarks across NVIDIA GeForce RTX, AMD Radeon RX, and Intel Arc series</p>
-        <div class="chart-container" style="height: 350px;">
+        <h2>GPU Silicon Benchmarks (Median Price in IDR Millions)</h2>
+        <p>Dynamic market benchmark across NVIDIA RTX 50/40/30, AMD Radeon RX 9000/7000, and Intel Arc</p>
+        <div class="chart-container" style="height: 480px;">
           <canvas id="gpuTiersChart"></canvas>
         </div>
       </div>
@@ -660,16 +892,16 @@ def render_html_report(analytics: Dict[str, Any], output_path: Path) -> None:
   <div id="tab-cpu" class="tab-content">
     <section class="charts-grid">
       <div class="chart-card">
-        <h2>CPU Series Benchmarks (Median IDR)</h2>
-        <p>Market benchmark across AMD Ryzen Series & Intel Core Series</p>
-        <div class="chart-container">
+        <h2>CPU Series Benchmarks (Median IDR Millions)</h2>
+        <p>Market benchmark across AMD Ryzen/Threadripper & Intel Core Ultra/Core Series</p>
+        <div class="chart-container" style="height: 380px;">
           <canvas id="cpuTiersChart"></canvas>
         </div>
       </div>
       <div class="chart-card">
         <h2>Tray vs Box OEM Price Premium</h2>
         <p>Direct cost difference: OEM Tray (no box/cooler) vs Retail Box</p>
-        <div class="chart-container">
+        <div class="chart-container" style="height: 380px;">
           <canvas id="trayBoxChart"></canvas>
         </div>
       </div>
@@ -681,8 +913,8 @@ def render_html_report(analytics: Dict[str, Any], output_path: Path) -> None:
     <section class="charts-grid">
       <div class="chart-card" style="grid-column: 1 / -1;">
         <h2>RAM Memory Capacity & Generation Benchmarks</h2>
-        <p>Median prices for DDR5 vs DDR4 across 8GB, 16GB, 32GB, and 64GB kits</p>
-        <div class="chart-container" style="height: 330px;">
+        <p>Median prices for DDR5 vs DDR4 across standard and non-binary kits (8GB to 128GB)</p>
+        <div class="chart-container" style="height: 360px;">
           <canvas id="ramTiersChart"></canvas>
         </div>
       </div>
@@ -693,8 +925,8 @@ def render_html_report(analytics: Dict[str, Any], output_path: Path) -> None:
   <div id="tab-storage" class="tab-content">
     <section class="charts-grid">
       <div class="chart-card">
-        <h2>Storage Form Factor Benchmarks (Median IDR)</h2>
-        <p>NVMe High-Speed vs SATA Budget SSDs across 500GB, 1TB, and 2TB</p>
+        <h2>Storage Form Factor Benchmarks (Median IDR Millions)</h2>
+        <p>High-Speed NVMe PCIe vs SATA SSDs & HDDs (250GB to 4TB)</p>
         <div class="chart-container">
           <canvas id="storageTiersChart"></canvas>
         </div>
@@ -713,16 +945,16 @@ def render_html_report(analytics: Dict[str, Any], output_path: Path) -> None:
   <div id="tab-mobo-psu" class="tab-content">
     <section class="charts-grid">
       <div class="chart-card">
-        <h2>Motherboard Chipset Price Tiers</h2>
-        <p>Intel (Z790/B760/H610) vs AMD (X670/B650/B550/A620) Chipsets</p>
-        <div class="chart-container">
+        <h2>Motherboard Chipset Price Tiers (Median IDR Millions)</h2>
+        <p>Intel (Z890/Z790/B760/H610) vs AMD (X870E/X870/B650/B550/A620)</p>
+        <div class="chart-container" style="height: 360px;">
           <canvas id="moboTiersChart"></canvas>
         </div>
       </div>
       <div class="chart-card">
-        <h2>Power Supply (PSU) Wattage Tiers</h2>
-        <p>Median market prices across 500W to 1000W+ power supplies</p>
-        <div class="chart-container">
+        <h2>Power Supply (PSU) Wattage Tiers (Median IDR Millions)</h2>
+        <p>Median market prices across 400W to 1000W+ power supplies</p>
+        <div class="chart-container" style="height: 360px;">
           <canvas id="psuTiersChart"></canvas>
         </div>
       </div>
@@ -739,7 +971,7 @@ def render_html_report(analytics: Dict[str, Any], output_path: Path) -> None:
     </div>
 
     <div class="explorer-controls">
-      <input type="text" id="searchInput" class="search-input" placeholder="🔍 Search product name, chipset, or brand (e.g. RTX 4070, B650, DDR5, NVMe, Corsair, Seasonic)..." oninput="handleSearch()">
+      <input type="text" id="searchInput" class="search-input" placeholder="🔍 Search product name, chipset, or brand (e.g. RTX 5080, RX 9070, B650, DDR5, NVMe, Corsair, Seasonic)..." oninput="handleSearch()">
       
       <div class="filter-btn-group" id="categoryFilters">
         <button class="filter-btn active" data-cat="all" onclick="setCategoryFilter('all')">All Categories</button>
@@ -753,6 +985,7 @@ def render_html_report(analytics: Dict[str, Any], output_path: Path) -> None:
         <button class="filter-btn" data-cat="Cooler" onclick="setCategoryFilter('Cooler')">Cooler ({len([x for x in analytics['table_items'] if x['category'] == 'Cooler']):,})</button>
         <button class="filter-btn" data-cat="Casing" onclick="setCategoryFilter('Casing')">Casing ({len([x for x in analytics['table_items'] if x['category'] == 'Casing']):,})</button>
         <button class="filter-btn" data-cat="Peripheral" onclick="setCategoryFilter('Peripheral')">Peripherals ({len([x for x in analytics['table_items'] if x['category'] == 'Peripheral']):,})</button>
+        <button class="filter-btn filter-btn-alert" data-cat="unclassified" onclick="setCategoryFilter('unclassified')">⚠️ Unclassified Silicon ({len([x for x in analytics['table_items'] if x.get('is_unclassified_chip')]):,})</button>
       </div>
 
       <div class="filter-btn-group" id="retailerFilters">
@@ -768,8 +1001,8 @@ def render_html_report(analytics: Dict[str, Any], output_path: Path) -> None:
           <tr>
             <th>Product Name</th>
             <th width="110">Category</th>
-            <th width="150">Tier / Series</th>
-            <th width="110">Brand</th>
+            <th width="170">Tier / Silicon Model</th>
+            <th width="120">Brand</th>
             <th width="130">Retailer</th>
             <th width="150" style="text-align: right;">Price (IDR)</th>
           </tr>
@@ -835,7 +1068,7 @@ def render_html_report(analytics: Dict[str, Any], output_path: Path) -> None:
           labels: data.cat_dist.map(d => d.category),
           datasets: [{{
             data: data.cat_dist.map(d => d.count),
-            backgroundColor: ['#06b6d4', '#10b981', '#3b82f6', '#8b5cf6', '#f59e0b', '#ec4899', '#64748b'],
+            backgroundColor: ['#06b6d4', '#10b981', '#3b82f6', '#8b5cf6', '#f59e0b', '#ec4899', '#64748b', '#0ea5e9', '#14b8a6', '#f43f5e'],
             borderColor: '#111827', borderWidth: 2
           }}]
         }},
@@ -845,7 +1078,7 @@ def render_html_report(analytics: Dict[str, Any], output_path: Path) -> None:
         }}
       }});
 
-      // 3. GPU Tiers Horizontal Bar
+      // 3. GPU Tiers Horizontal Bar (Top 25)
       const gpuCtx = document.getElementById("gpuTiersChart").getContext("2d");
       new Chart(gpuCtx, {{
         type: 'bar',
@@ -859,7 +1092,14 @@ def render_html_report(analytics: Dict[str, Any], output_path: Path) -> None:
         }},
         options: {{
           indexAxis: 'y', responsive: true, maintainAspectRatio: false,
-          plugins: {{ legend: {{ display: false }} }},
+          plugins: {{ 
+            legend: {{ display: false }},
+            tooltip: {{
+              callbacks: {{
+                label: (ctx) => `Rp ${{ctx.raw}} Jt (${{data.gpu_benchmarks[ctx.dataIndex].count}} items)`
+              }}
+            }}
+          }},
           scales: {{
             x: {{ ticks: {{ color: '#9ca3af' }}, grid: {{ color: '#1f293d' }} }},
             y: {{ ticks: {{ color: '#9ca3af' }}, grid: {{ display: false }} }}
@@ -881,7 +1121,14 @@ def render_html_report(analytics: Dict[str, Any], output_path: Path) -> None:
         }},
         options: {{
           indexAxis: 'y', responsive: true, maintainAspectRatio: false,
-          plugins: {{ legend: {{ display: false }} }},
+          plugins: {{ 
+            legend: {{ display: false }},
+            tooltip: {{
+              callbacks: {{
+                label: (ctx) => `Rp ${{ctx.raw}} Jt (${{data.cpu_benchmarks[ctx.dataIndex].count}} items)`
+              }}
+            }}
+          }},
           scales: {{
             x: {{ ticks: {{ color: '#9ca3af' }}, grid: {{ color: '#1f293d' }} }},
             y: {{ ticks: {{ color: '#9ca3af' }}, grid: {{ display: false }} }}
@@ -1064,7 +1311,15 @@ def render_html_report(analytics: Dict[str, Any], output_path: Path) -> None:
 
     function renderTable() {{
       filteredItems = data.table_items.filter(item => {{
-        const matchCat = currentCategory === 'all' || item.category === currentCategory;
+        let matchCat = false;
+        if (currentCategory === 'all') {{
+          matchCat = true;
+        }} else if (currentCategory === 'unclassified') {{
+          matchCat = Boolean(item.is_unclassified_chip);
+        }} else {{
+          matchCat = item.category === currentCategory;
+        }}
+
         const matchRet = currentRetailer === 'all' || item.source === currentRetailer;
         const matchSearch = !searchQuery || 
           item.name.toLowerCase().includes(searchQuery) || 
@@ -1096,8 +1351,20 @@ def render_html_report(analytics: Dict[str, Any], output_path: Path) -> None:
             ? `<span class="badge badge-unit">Rp ${{item.price_per_gb.toLocaleString("id-ID")}}/GB</span>`
             : '';
 
+          const aiBadge = item.is_ai_classified 
+            ? `<span class="badge badge-ai">✨ AI Classified</span>` 
+            : '';
+
+          const unclassifiedBadge = item.is_unclassified_chip 
+            ? `<span class="badge badge-unclassified">⚠️ Unclassified</span>` 
+            : '';
+
           tr.innerHTML = `
-            <td>${{nameHtml}}</td>
+            <td>
+              ${{nameHtml}}
+              ${{aiBadge ? '<br>' + aiBadge : ''}}
+              ${{unclassifiedBadge ? '<br>' + unclassifiedBadge : ''}}
+            </td>
             <td><span class="badge" style="background:#1e293b; color:#94a3b8;">${{item.category}}</span></td>
             <td><span class="badge badge-tier">${{item.tier}}</span></td>
             <td><span class="badge badge-brand">${{item.brand}}</span></td>
@@ -1141,6 +1408,23 @@ def main() -> None:
         help="Destination path for generated dashboard HTML",
     )
     parser.add_argument(
+        "--ai-cache",
+        type=Path,
+        default=DEFAULT_AI_CACHE_FILE,
+        help="Path to AI classification cache JSON",
+    )
+    parser.add_argument(
+        "--ai-fallback",
+        action="store_true",
+        help="Enable AI agent (agy/pi) fallback classification for unclassified hardware models",
+    )
+    parser.add_argument(
+        "--agent",
+        choices=["auto", "agy", "pi"],
+        default="auto",
+        help="Agent engine for fallback classification (default: auto)",
+    )
+    parser.add_argument(
         "--open",
         action="store_true",
         help="Automatically launch the generated HTML report in your browser",
@@ -1149,12 +1433,21 @@ def main() -> None:
     args = parser.parse_args()
 
     try:
-        conn = load_hardware_data(args.data_dir)
+        conn = load_hardware_data(
+            data_dir=args.data_dir,
+            ai_cache_file=args.ai_cache,
+            use_ai_fallback=args.ai_fallback,
+            agent=args.agent,
+        )
         analytics = extract_analytics(conn)
         render_html_report(analytics, args.output)
 
         print(f"\n✨ pcomp local dashboard generated successfully!")
-        print(f"📊 Report: file://{args.output.resolve()}\n")
+        print(f"📊 Report: file://{args.output.resolve()}")
+        print(f"🔬 Total Items: {analytics['kpis']['total_items']:,}")
+        print(f"🎯 Core Silicon Recognition: {round((analytics['kpis']['count_core_classified'] / max(analytics['kpis']['count_core_silicon'], 1)) * 100, 1)}% ({analytics['kpis']['count_core_classified']:,}/{analytics['kpis']['count_core_silicon']:,} GPU/CPU)")
+        print(f"⚙️ Internal Hardware Tiered: {analytics['kpis']['count_classified']:,} items")
+        print(f"🤖 AI Cache Items: {analytics['kpis']['count_ai_classified']}\n")
 
         if args.open:
             webbrowser.open(f"file://{args.output.resolve()}")
