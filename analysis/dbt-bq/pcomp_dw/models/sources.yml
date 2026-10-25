@@ -1,0 +1,9 @@
+version: 2
+
+sources:
+  - name: dezoomcamp
+    database: ichsanul-dev
+    schema: de_zoomcamp  
+    tables:
+      - name: enterkomputer_raw
+      - name: viraindo_raw

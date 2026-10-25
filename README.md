@@ -11,6 +11,7 @@ Repository layout: [`analysis/`](./analysis) · [`ai/`](./ai) · [`tools/`](./to
 | Project | Description |
 |---|---|
 | [`dbt-bq/sharia_banking_dw/`](./analysis/dbt-bq/sharia_banking_dw) | Indonesian Sharia banking data warehouse simulation: dbt-duckdb Medallion models (staging → intermediate → marts) covering Nisbah profit-sharing, financing portfolio quality (OJK), Zakat & purification; orchestrated via Astronomer Cosmos on Airflow |
+| [`dbt-bq/pcomp_dw/`](./analysis/dbt-bq/pcomp_dw) | Indonesian PC hardware price intelligence data warehouse (EnterKomputer & Viraindo) with component normalization, week-over-week % delta tracking, and Looker Studio dashboard |
 | [`dbt-bq/bigquery_experiments/`](./analysis/dbt-bq/bigquery_experiments) | dbt-BigQuery research sandbox — dynamic vs static partition insert-overwrite and indirect test selection, with write-ups in [`docs/`](./analysis/dbt-bq/bigquery_experiments/docs) |
 | [`crypto-data/`](./analysis/crypto-data) | Fetch crypto data from Binance (CSV export parser) and CoinGecko API; query Solana token balances by wallet (Alchemy) |
 | [`finance/`](./analysis/finance) | Recession indicators (`recession.py`), Forbes wealth data (`forbes.py`), Taleb-style fat-tails explorations (`taleb.py`), and GBM simulations (`main.py`) |

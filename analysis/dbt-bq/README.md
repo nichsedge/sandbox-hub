@@ -28,11 +28,24 @@ dbt-bq/
 │   ├── airflow.cfg                # Airflow config (load_examples = False)
 │   └── README.md                  # Comprehensive Sharia DW guide
 │
-└── bigquery_experiments/          # ☁️ MODULE 2: BigQuery Experiments & Research Articles
-    ├── sans/                      # dbt BigQuery project
-    ├── compiled_sql/              # Compiled BigQuery SQL queries
-    ├── docs/                      # Research articles (Insert-overwrite & indirect selection)
-    └── README.md                  # BigQuery sandbox guide
+├── bigquery_experiments/          # ☁️ MODULE 2: BigQuery Experiments & Research Articles
+│   ├── sans/                      # dbt BigQuery project
+│   ├── compiled_sql/              # Compiled BigQuery SQL queries
+│   ├── docs/                      # Research articles (Insert-overwrite & indirect selection)
+│   └── README.md                  # BigQuery sandbox guide
+│
+└── pcomp_dw/                      # 🖥️ MODULE 3: PC Hardware Price Intelligence Data Warehouse
+    ├── dbt_project.yml            # dbt BigQuery project configuration
+    ├── profiles.yml               # BigQuery service account profile
+    ├── models/                    # Medallion staging, intermediate & mart SQL models
+    │   ├── sources.yml
+    │   ├── enterkomputer_raw.sql
+    │   ├── viraindo_raw.sql
+    │   ├── enterkomputer.sql
+    │   ├── viraindo.sql
+    │   └── pcomp.sql
+    ├── docs/images/               # Looker Studio dashboard, DAG & BigQuery schema screenshots
+    └── README.md                  # Full documentation & Looker Studio dashboard walkthrough
 ```
 
 ---
@@ -43,6 +56,7 @@ dbt-bq/
 | :--- | :--- | :--- | :--- |
 | **Sharia Banking DW** | `dbt-duckdb`, `astronomer-cosmos`, `apache-airflow` | Indonesian Sharia banking financial simulation, Nisbah profit sharing, OJK NPF asset quality, Zakat & Purification | [sharia_banking_dw/README.md](./sharia_banking_dw/README.md) |
 | **BigQuery Experiments** | `dbt-bigquery`, Google BigQuery | BigQuery dynamic vs static partition insert overwrite strategies, dbt indirect test selection | [bigquery_experiments/README.md](./bigquery_experiments/README.md) |
+| **PC Hardware DW (pcomp)** | `dbt-bigquery`, Google BigQuery, Looker Studio | Indonesian computer retailer price intelligence (EnterKomputer, Viraindo), specs normalization, week-over-week % deltas, Looker Studio dashboard | [pcomp_dw/README.md](./pcomp_dw/README.md) |
 
 ---
 
@@ -70,6 +84,11 @@ cd sharia_banking_dw/dbt_project
 uv run dbt seed --profiles-dir .
 uv run dbt run --profiles-dir .
 uv run dbt test --profiles-dir .
+
+# Run PC Hardware Price Intelligence (pcomp_dw)
+cd ../pcomp_dw
+uv run dbt run --profiles-dir .
+uv run dbt test --profiles-dir .
 ```
 
 ---
@@ -77,5 +96,6 @@ uv run dbt test --profiles-dir .
 ## 📄 Technical Guides
 
 - [Sharia Banking DW guide](./sharia_banking_dw/README.md): business domain, Sharia financial formulas (Nisbah/Mudharabah), model lineage, and verification walkthrough.
+- [PC Hardware Price Intelligence DW guide & Looker Studio Dashboard](./pcomp_dw/README.md): retail hardware data modeling, Looker Studio dashboard, and lineage DAG.
 - [Dynamic vs Static Partition Insert-Overwrite in BigQuery](./bigquery_experiments/docs/dbt_bq_insert_overwrite_dynamic_vs_static.md)
 - [dbt Indirect Test Selection](./bigquery_experiments/docs/dbt_indirect_selection.md)
