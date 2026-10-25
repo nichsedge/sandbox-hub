@@ -26,7 +26,7 @@ import sys
 import webbrowser
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import duckdb
 
@@ -77,19 +77,19 @@ DEFAULT_PUBLIC_EXPORT_HTML = (
 )
 
 
-def load_ai_cache(cache_file: Path) -> Dict[str, Dict[str, str]]:
+def load_ai_cache(cache_file: Path) -> dict[str, dict[str, str]]:
     """Load cached AI classifications from disk."""
     if not cache_file.exists():
         return {}
     try:
         with open(cache_file, "r", encoding="utf-8") as f:
             return json.load(f)
-    except Exception as e:
+    except (json.JSONDecodeError, OSError) as e:
         logger.warning(f"Could not load AI cache from {cache_file}: {e}")
         return {}
 
 
-def save_ai_cache(cache_file: Path, cache_data: Dict[str, Dict[str, str]]) -> None:
+def save_ai_cache(cache_file: Path, cache_data: dict[str, dict[str, str]]) -> None:
     """Save AI classifications dictionary to disk."""
     cache_file.parent.mkdir(parents=True, exist_ok=True)
     with open(cache_file, "w", encoding="utf-8") as f:
@@ -98,15 +98,15 @@ def save_ai_cache(cache_file: Path, cache_data: Dict[str, Dict[str, str]]) -> No
 
 
 def classify_with_agent(
-    names_to_classify: List[str],
+    names_to_classify: list[str],
     agent: str = "auto",
     batch_size: int = 15,
-) -> Dict[str, Dict[str, str]]:
+) -> dict[str, dict[str, str]]:
     """Classify unknown hardware product names using local CLI agents (agy or pi)."""
     if not names_to_classify:
         return {}
 
-    results: Dict[str, Dict[str, str]] = {}
+    results: dict[str, dict[str, str]] = {}
     batches = [
         names_to_classify[i : i + batch_size]
         for i in range(0, len(names_to_classify), batch_size)
@@ -151,6 +151,7 @@ def classify_with_agent(
         try:
             res = subprocess.run(
                 cmd,
+                check=False,
                 capture_output=True,
                 text=True,
                 timeout=timeout_seconds,
@@ -168,7 +169,7 @@ def classify_with_agent(
                             "brand": str(v.get("brand", "Other")),
                         }
                 logger.info(f"Successfully classified {len(parsed)} items in batch {idx}.")
-        except Exception as e:
+        except (json.JSONDecodeError, KeyError, subprocess.SubprocessError) as e:
             logger.warning(f"Batch {idx} agent classification failed ({e}).")
 
     return results
@@ -177,7 +178,7 @@ def classify_with_agent(
 def load_hardware_data(
     data_dir: Path,
     ai_cache_file: Path,
-    benchmark_file: Optional[Path] = None,
+    benchmark_file: Path | None = None,
     use_ai_fallback: bool = False,
     agent: str = "auto",
 ) -> duckdb.DuckDBPyConnection:
@@ -474,14 +475,14 @@ def load_hardware_data(
     return conn
 
 
-def query_to_dicts(conn: duckdb.DuckDBPyConnection, sql: str) -> List[Dict[str, Any]]:
+def query_to_dicts(conn: duckdb.DuckDBPyConnection, sql: str) -> list[dict[str, Any]]:
     """Execute SQL query and convert results to list of dictionaries without pandas."""
     cur = conn.execute(sql)
     cols = [desc[0] for desc in cur.description]
     return [dict(zip(cols, row)) for row in cur.fetchall()]
 
 
-def extract_analytics(conn: duckdb.DuckDBPyConnection) -> Dict[str, Any]:
+def extract_analytics(conn: duckdb.DuckDBPyConnection) -> dict[str, Any]:
     """Execute analytical queries in DuckDB and return dashboard data payload."""
     # 1. High-level KPIs
     kpis = query_to_dicts(conn, """
@@ -682,7 +683,7 @@ def extract_analytics(conn: duckdb.DuckDBPyConnection) -> Dict[str, Any]:
     }
 
 
-def render_html_report(analytics: Dict[str, Any], output_path: Path) -> None:
+def render_html_report(analytics: dict[str, Any], output_path: Path) -> None:
     """Generate modern, interactive HTML dashboard with sorting, filtering, and value analytics."""
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -1911,7 +1912,7 @@ def main() -> None:
         analytics = extract_analytics(conn)
         render_html_report(analytics, args.output)
 
-        print(f"\n✨ pcomp local dashboard generated successfully!")
+        print("\n✨ pcomp local dashboard generated successfully!")
         print(f"📊 Report: file://{args.output.resolve()}")
         print(f"🔬 Total Items: {analytics['kpis']['total_items']:,}")
         print(f"🎯 Core Silicon Recognition: {round((analytics['kpis']['count_core_classified'] / max(analytics['kpis']['count_core_silicon'], 1)) * 100, 1)}% ({analytics['kpis']['count_core_classified']:,}/{analytics['kpis']['count_core_silicon']:,} GPU/CPU)")
@@ -1922,13 +1923,13 @@ def main() -> None:
         if args.export_public:
             render_html_report(analytics, DEFAULT_PUBLIC_EXPORT_HTML)
             print(f"🌐 Public static dashboard exported to: {DEFAULT_PUBLIC_EXPORT_HTML}")
-            print(f"   Live at: https://nichsedge.me/pcomp/ (upon git push in nichsedge.github.io)\n")
+            print("   Live at: https://nichsedge.me/pcomp/ (upon git push in nichsedge.github.io)\n")
 
         if args.open:
             webbrowser.open(f"file://{args.output.resolve()}")
 
-    except Exception as e:
-        logger.exception(f"Failed to generate report: {e}")
+    except Exception:
+        logger.exception("Failed to generate report")
         sys.exit(1)
 
 
