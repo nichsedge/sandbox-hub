@@ -7,7 +7,8 @@
 """pcomp Local Price Intelligence & Dashboard Generator.
 
 Queries local JSON snapshots from indoscraping using embedded DuckDB,
-classifies hardware silicon dynamically via grammar rules + AI agent fallback (agy/pi),
+joins live PassMark 3D Graphics & CPU Compute benchmark datasets,
+calculates Price-to-Performance value scores (points per IDR 1 Million),
 and renders a self-contained, interactive HTML dashboard with Chart.js.
 No BigQuery, no cloud credentials, and no external daemon needed.
 """
@@ -37,6 +38,15 @@ logging.basicConfig(
 logger = logging.getLogger("pcomp-report")
 
 DEFAULT_DATA_DIR = Path.home() / "Projects" / "indoscraping" / "data" / "hardware"
+DEFAULT_BENCHMARK_FILE = (
+    Path.home()
+    / "Projects"
+    / "indoscraping"
+    / "data"
+    / "benchmarks"
+    / "passmark"
+    / "latest.json"
+)
 DEFAULT_AI_CACHE_FILE = (
     Path.home()
     / "Projects"
@@ -56,6 +66,14 @@ DEFAULT_OUTPUT_HTML = (
     / "pcomp_dw"
     / "reports"
     / "pcomp_dashboard.html"
+)
+DEFAULT_PUBLIC_EXPORT_HTML = (
+    Path.home()
+    / "Projects"
+    / "nichsedge.github.io"
+    / "public"
+    / "pcomp"
+    / "index.html"
 )
 
 
@@ -84,10 +102,7 @@ def classify_with_agent(
     agent: str = "auto",
     batch_size: int = 15,
 ) -> Dict[str, Dict[str, str]]:
-    """Classify unknown hardware product names using local CLI agents (agy or pi).
-
-    Tries agy (--dangerously-skip-permissions) or pi (-p --no-session --no-tools).
-    """
+    """Classify unknown hardware product names using local CLI agents (agy or pi)."""
     if not names_to_classify:
         return {}
 
@@ -97,13 +112,11 @@ def classify_with_agent(
         for i in range(0, len(names_to_classify), batch_size)
     ]
 
-    # Resolve executable
     has_pi = shutil.which("pi") is not None
     has_agy = shutil.which("agy") is not None
 
     preferred_agent = agent
     if preferred_agent == "auto":
-        # pi is dramatically faster for single-turn stateless JSON extraction (2s vs 20s)
         preferred_agent = "pi" if has_pi else ("agy" if has_agy else "none")
 
     if preferred_agent == "none":
@@ -143,7 +156,6 @@ def classify_with_agent(
                 timeout=timeout_seconds,
             )
             raw_output = res.stdout.strip()
-            # Strip markdown fences if agent included them
             clean_output = re.sub(r"^```(?:json)?\s*", "", raw_output, flags=re.MULTILINE)
             clean_output = re.sub(r"```\s*$", "", clean_output, flags=re.MULTILINE).strip()
 
@@ -165,24 +177,36 @@ def classify_with_agent(
 def load_hardware_data(
     data_dir: Path,
     ai_cache_file: Path,
+    benchmark_file: Optional[Path] = None,
     use_ai_fallback: bool = False,
     agent: str = "auto",
 ) -> duckdb.DuckDBPyConnection:
-    """Load latest hardware json files into an in-memory DuckDB table with dynamic grammar & AI cache."""
+    """Load hardware catalog and online benchmark ratings into DuckDB."""
     conn = duckdb.connect(":memory:")
 
-    glob_pattern = str(data_dir / "*" / "latest.json")
-    matching_files = list(data_dir.glob("*/latest.json"))
+    # Explicitly load EnterKomputer and Viraindo catalogs only
+    catalog_files = [
+        str(data_dir / "enterkomputer" / "latest.json"),
+        str(data_dir / "viraindo" / "latest.json"),
+    ]
+    existing_catalog_files = [f for f in catalog_files if os.path.exists(f)]
 
-    if not matching_files:
+    if not existing_catalog_files:
+        # Fallback to glob if single subdirectories differ
+        existing_catalog_files = [
+            str(f) for f in data_dir.glob("*/latest.json") if "benchmarks" not in str(f)
+        ]
+
+    if not existing_catalog_files:
         raise FileNotFoundError(
-            f"No 'latest.json' files found under {data_dir}. "
+            f"No hardware catalog files found under {data_dir}. "
             "Please run 'uv run indoscraping run enterkomputer' and 'uv run indoscraping run viraindo' first."
         )
 
-    logger.info(f"Ingesting {len(matching_files)} hardware catalog files from {data_dir}...")
+    logger.info(f"Ingesting {len(existing_catalog_files)} retailer catalog files from {data_dir}...")
+    file_list_sql = ", ".join(f"'{f}'" for f in existing_catalog_files)
 
-    # Load persistent AI cache into DuckDB
+    # 1. Load persistent AI cache into DuckDB
     ai_cache = load_ai_cache(ai_cache_file)
     conn.execute("CREATE TABLE ai_cache (name VARCHAR PRIMARY KEY, tier VARCHAR, brand VARCHAR)")
     for name, info in ai_cache.items():
@@ -193,7 +217,7 @@ def load_hardware_data(
             [clean_k, info.get("tier", "Standard"), info.get("brand", "Other")],
         )
 
-    # First-pass raw catalog ingestion with cleaned whitespace & dynamic grammar extraction
+    # 2. Raw catalog ingestion with dynamic grammar extraction
     conn.execute(f"""
         CREATE TABLE raw_catalog AS 
         WITH cleaned_input AS (
@@ -216,7 +240,7 @@ def load_hardware_data(
                     WHEN lower(category) IN ('keyboard', 'keymouse') THEN 'Peripheral'
                     ELSE 'Other'
                 END AS std_category
-            FROM read_json_auto('{glob_pattern}')
+            FROM read_json_auto([{file_list_sql}])
             WHERE price > 0
         )
         SELECT 
@@ -234,66 +258,66 @@ def load_hardware_data(
             COALESCE(
                 ac.tier,
                 CASE 
-                    -- Dynamic GPU Grammar (NVIDIA RTX/GTX/GT/Quadro, AMD RX/Radeon, Intel Arc)
-                    WHEN ci.std_category = 'GPU' AND regexp_matches(ci.name, '(?i)\\b(RTX\\s*\\d{{3,4}}M?(?:\\s*(?:Ti\\s*SUPER|Ti|SUPER))?|GTX\\s*\\d{{3,4}}M?(?:\\s*Ti)?|GT\\s*\\d{{3,4}}|RX\\s*\\d{{3,4}}(?:\\s*(?:XTX|XT|GRE))?|Radeon\\s*(?:AI\\s*PRO\\s*|PRO\\s*)?(?:W\\d{{4}}|WX\\d{{4}}|R?\\d{{4}})[A-Z]*|Arc\\s*(?:Pro\\s*)?[A-Z]?\\d{{2,3}}|Quadro\\s*(?:RTX\\s*)?[A-Z0-9]+)\\b')
-                        THEN upper(regexp_replace(regexp_extract(ci.name, '(?i)\\b(RTX\\s*\\d{{3,4}}M?(?:\\s*(?:Ti\\s*SUPER|Ti|SUPER))?|GTX\\s*\\d{{3,4}}M?(?:\\s*Ti)?|GT\\s*\\d{{3,4}}|RX\\s*\\d{{3,4}}(?:\\s*(?:XTX|XT|GRE))?|Radeon\\s*(?:AI\\s*PRO\\s*|PRO\\s*)?(?:W\\d{{4}}|WX\\d{{4}}|R?\\d{{4}})[A-Z]*|Arc\\s*(?:Pro\\s*)?[A-Z]?\\d{{2,3}}|Quadro\\s*(?:RTX\\s*)?[A-Z0-9]+)\\b', 1), '\\s+', ' ', 'g'))
+                    -- Dynamic GPU Grammar
+                    WHEN ci.std_category = 'GPU' AND regexp_matches(ci.name, '(?i)\\\\b(RTX\\\\s*\\\\d{{3,4}}M?(?:\\\\s*(?:Ti\\\\s*SUPER|Ti|SUPER))?|GTX\\\\s*\\\\d{{3,4}}M?(?:\\\\s*Ti)?|GT\\\\s*\\\\d{{3,4}}|RX\\\\s*\\\\d{{3,4}}(?:\\\\s*(?:XTX|XT|GRE))?|Radeon\\\\s*(?:AI\\\\s*PRO\\\\s*|PRO\\\\s*)?(?:W\\\\d{{4}}|WX\\\\d{{4}}|R?\\\\d{{4}})[A-Z]*|Arc\\\\s*(?:Pro\\\\s*)?[A-Z]?\\\\d{{2,3}}|Quadro\\\\s*(?:RTX\\\\s*)?[A-Z0-9]+)\\\\b')
+                        THEN upper(regexp_replace(regexp_extract(ci.name, '(?i)\\\\b(RTX\\\\s*\\\\d{{3,4}}M?(?:\\\\s*(?:Ti\\\\s*SUPER|Ti|SUPER))?|GTX\\\\s*\\\\d{{3,4}}M?(?:\\\\s*Ti)?|GT\\\\s*\\\\d{{3,4}}|RX\\\\s*\\\\d{{3,4}}(?:\\\\s*(?:XTX|XT|GRE))?|Radeon\\\\s*(?:AI\\\\s*PRO\\\\s*|PRO\\\\s*)?(?:W\\\\d{{4}}|WX\\\\d{{4}}|R?\\\\d{{4}})[A-Z]*|Arc\\\\s*(?:Pro\\\\s*)?[A-Z]?\\\\d{{2,3}}|Quadro\\\\s*(?:RTX\\\\s*)?[A-Z0-9]+)\\\\b', 1), '\\\\s+', ' ', 'g'))
 
-                    -- Dynamic CPU Grammar (AMD Ryzen 9/7/5/3, Threadripper, EPYC, Intel Core Ultra, Core i9/i7/i5/i3, Xeon, Pentium, Celeron)
+                    -- Dynamic CPU Grammar
                     WHEN ci.std_category = 'CPU' AND lower(ci.name) LIKE '%threadripper%' THEN 'AMD Threadripper'
                     WHEN ci.std_category = 'CPU' AND lower(ci.name) LIKE '%epyc%' THEN 'AMD EPYC'
-                    WHEN ci.std_category = 'CPU' AND regexp_matches(ci.name, '(?i)Ryzen\\s*(?:PRO\\s*)?9') THEN 'AMD Ryzen 9'
-                    WHEN ci.std_category = 'CPU' AND regexp_matches(ci.name, '(?i)Ryzen\\s*(?:PRO\\s*)?7') THEN 'AMD Ryzen 7'
-                    WHEN ci.std_category = 'CPU' AND regexp_matches(ci.name, '(?i)Ryzen\\s*(?:PRO\\s*)?5') THEN 'AMD Ryzen 5'
-                    WHEN ci.std_category = 'CPU' AND regexp_matches(ci.name, '(?i)Ryzen\\s*(?:PRO\\s*)?3') THEN 'AMD Ryzen 3'
-                    WHEN ci.std_category = 'CPU' AND regexp_matches(ci.name, '(?i)Core\\s*Ultra\\s*9') THEN 'Intel Core Ultra 9'
-                    WHEN ci.std_category = 'CPU' AND regexp_matches(ci.name, '(?i)Core\\s*Ultra\\s*7') THEN 'Intel Core Ultra 7'
-                    WHEN ci.std_category = 'CPU' AND regexp_matches(ci.name, '(?i)Core\\s*Ultra\\s*5') THEN 'Intel Core Ultra 5'
-                    WHEN ci.std_category = 'CPU' AND regexp_matches(ci.name, '(?i)Core\\s*i9') THEN 'Intel Core i9'
-                    WHEN ci.std_category = 'CPU' AND regexp_matches(ci.name, '(?i)Core\\s*i7') THEN 'Intel Core i7'
-                    WHEN ci.std_category = 'CPU' AND regexp_matches(ci.name, '(?i)Core\\s*i5') THEN 'Intel Core i5'
-                    WHEN ci.std_category = 'CPU' AND regexp_matches(ci.name, '(?i)Core\\s*i3') THEN 'Intel Core i3'
+                    WHEN ci.std_category = 'CPU' AND regexp_matches(ci.name, '(?i)Ryzen\\\\s*(?:PRO\\\\s*)?9') THEN 'AMD Ryzen 9'
+                    WHEN ci.std_category = 'CPU' AND regexp_matches(ci.name, '(?i)Ryzen\\\\s*(?:PRO\\\\s*)?7') THEN 'AMD Ryzen 7'
+                    WHEN ci.std_category = 'CPU' AND regexp_matches(ci.name, '(?i)Ryzen\\\\s*(?:PRO\\\\s*)?5') THEN 'AMD Ryzen 5'
+                    WHEN ci.std_category = 'CPU' AND regexp_matches(ci.name, '(?i)Ryzen\\\\s*(?:PRO\\\\s*)?3') THEN 'AMD Ryzen 3'
+                    WHEN ci.std_category = 'CPU' AND regexp_matches(ci.name, '(?i)Core\\\\s*Ultra\\\\s*9') THEN 'Intel Core Ultra 9'
+                    WHEN ci.std_category = 'CPU' AND regexp_matches(ci.name, '(?i)Core\\\\s*Ultra\\\\s*7') THEN 'Intel Core Ultra 7'
+                    WHEN ci.std_category = 'CPU' AND regexp_matches(ci.name, '(?i)Core\\\\s*Ultra\\\\s*5') THEN 'Intel Core Ultra 5'
+                    WHEN ci.std_category = 'CPU' AND regexp_matches(ci.name, '(?i)Core\\\\s*i9') THEN 'Intel Core i9'
+                    WHEN ci.std_category = 'CPU' AND regexp_matches(ci.name, '(?i)Core\\\\s*i7') THEN 'Intel Core i7'
+                    WHEN ci.std_category = 'CPU' AND regexp_matches(ci.name, '(?i)Core\\\\s*i5') THEN 'Intel Core i5'
+                    WHEN ci.std_category = 'CPU' AND regexp_matches(ci.name, '(?i)Core\\\\s*i3') THEN 'Intel Core i3'
                     WHEN ci.std_category = 'CPU' AND lower(ci.name) LIKE '%xeon%' THEN 'Intel Xeon'
                     WHEN ci.std_category = 'CPU' AND lower(ci.name) LIKE '%pentium%' THEN 'Intel Pentium'
                     WHEN ci.std_category = 'CPU' AND lower(ci.name) LIKE '%athlon%' THEN 'AMD Athlon'
                     WHEN ci.std_category = 'CPU' AND lower(ci.name) LIKE '%celeron%' THEN 'Intel Celeron'
 
-                    -- Dynamic RAM Grammar (DDR5 / DDR4 capacities)
-                    WHEN ci.std_category = 'RAM' AND regexp_matches(ci.name, '(?i)\\bDDR5\\b') AND regexp_matches(ci.name, '(?i)\\b(8|16|24|32|48|64|96|128)\\s*GB\\b')
-                        THEN 'DDR5 ' || regexp_extract(ci.name, '(?i)\\b(8|16|24|32|48|64|96|128)\\s*GB\\b', 1) || 'GB'
-                    WHEN ci.std_category = 'RAM' AND regexp_matches(ci.name, '(?i)\\bDDR4\\b') AND regexp_matches(ci.name, '(?i)\\b(8|16|24|32|48|64)\\s*GB\\b')
-                        THEN 'DDR4 ' || regexp_extract(ci.name, '(?i)\\b(8|16|24|32|48|64)\\s*GB\\b', 1) || 'GB'
-                    WHEN ci.std_category = 'RAM' AND regexp_matches(ci.name, '(?i)\\bDDR3\\b') THEN 'DDR3'
+                    -- Dynamic RAM Grammar
+                    WHEN ci.std_category = 'RAM' AND regexp_matches(ci.name, '(?i)\\\\bDDR5\\\\b') AND regexp_matches(ci.name, '(?i)\\\\b(8|16|24|32|48|64|96|128)\\\\s*GB\\\\b')
+                        THEN 'DDR5 ' || regexp_extract(ci.name, '(?i)\\\\b(8|16|24|32|48|64|96|128)\\\\s*GB\\\\b', 1) || 'GB'
+                    WHEN ci.std_category = 'RAM' AND regexp_matches(ci.name, '(?i)\\\\bDDR4\\\\b') AND regexp_matches(ci.name, '(?i)\\\\b(8|16|24|32|48|64)\\\\s*GB\\\\b')
+                        THEN 'DDR4 ' || regexp_extract(ci.name, '(?i)\\\\b(8|16|24|32|48|64)\\\\s*GB\\\\b', 1) || 'GB'
+                    WHEN ci.std_category = 'RAM' AND regexp_matches(ci.name, '(?i)\\\\bDDR3\\\\b') THEN 'DDR3'
 
-                    -- Dynamic Storage Grammar (NVMe / SATA / HDD / Flash)
-                    WHEN ci.std_category = 'Storage' AND regexp_matches(ci.name, '(?i)\\b(NVMe|PCIe|M\\.2)\\b') AND regexp_matches(ci.name, '(?i)\\b(4|2|1)\\s*TB\\b')
-                        THEN 'NVMe ' || regexp_extract(ci.name, '(?i)\\b(4|2|1)\\s*TB\\b', 1) || 'TB'
-                    WHEN ci.std_category = 'Storage' AND regexp_matches(ci.name, '(?i)\\b(NVMe|PCIe|M\\.2)\\b') AND regexp_matches(ci.name, '(?i)\\b(500|512|250|256)\\s*GB\\b')
-                        THEN 'NVMe ' || regexp_extract(ci.name, '(?i)\\b(500|512|250|256)\\s*GB\\b', 1) || 'GB'
-                    WHEN ci.std_category = 'Storage' AND regexp_matches(ci.name, '(?i)\\bSATA\\b') AND regexp_matches(ci.name, '(?i)\\b(2|1)\\s*TB\\b')
-                        THEN 'SATA ' || regexp_extract(ci.name, '(?i)\\b(2|1)\\s*TB\\b', 1) || 'TB'
-                    WHEN ci.std_category = 'Storage' AND regexp_matches(ci.name, '(?i)\\bSATA\\b') AND regexp_matches(ci.name, '(?i)\\b(500|512|240|256|120|128)\\s*GB\\b')
-                        THEN 'SATA ' || regexp_extract(ci.name, '(?i)\\b(500|512|240|256|120|128)\\s*GB\\b', 1) || 'GB'
-                    WHEN ci.std_category = 'Storage' AND regexp_matches(ci.name, '(?i)\\bSSD\\b') AND regexp_matches(ci.name, '(?i)\\b(4|2|1)\\s*TB\\b')
-                        THEN 'SSD ' || regexp_extract(ci.name, '(?i)\\b(4|2|1)\\s*TB\\b', 1) || 'TB'
-                    WHEN ci.std_category = 'Storage' AND regexp_matches(ci.name, '(?i)\\bSSD\\b') AND regexp_matches(ci.name, '(?i)\\b(500|512|250|256|120|128)\\s*GB\\b')
-                        THEN 'SSD ' || regexp_extract(ci.name, '(?i)\\b(500|512|250|256|120|128)\\s*GB\\b', 1) || 'GB'
-                    WHEN ci.std_category = 'Storage' AND regexp_matches(ci.name, '(?i)\\b(HDD|Hard Disk|IronWolf|SkyHawk|BarraCuda|WD Purple|WD Red)\\b') THEN 'HDD'
-                    WHEN ci.std_category = 'Storage' AND regexp_matches(ci.name, '(?i)\\b(MicroSD|SDHC|SDXC|Flashdisk|Flash Drive|Cruzer)\\b') THEN 'Flash / SD'
+                    -- Dynamic Storage Grammar
+                    WHEN ci.std_category = 'Storage' AND regexp_matches(ci.name, '(?i)\\\\b(NVMe|PCIe|M\\\\.2)\\\\b') AND regexp_matches(ci.name, '(?i)\\\\b(4|2|1)\\\\s*TB\\\\b')
+                        THEN 'NVMe ' || regexp_extract(ci.name, '(?i)\\\\b(4|2|1)\\\\s*TB\\\\b', 1) || 'TB'
+                    WHEN ci.std_category = 'Storage' AND regexp_matches(ci.name, '(?i)\\\\b(NVMe|PCIe|M\\\\.2)\\\\b') AND regexp_matches(ci.name, '(?i)\\\\b(500|512|250|256)\\\\s*GB\\\\b')
+                        THEN 'NVMe ' || regexp_extract(ci.name, '(?i)\\\\b(500|512|250|256)\\\\s*GB\\\\b', 1) || 'GB'
+                    WHEN ci.std_category = 'Storage' AND regexp_matches(ci.name, '(?i)\\\\bSATA\\\\b') AND regexp_matches(ci.name, '(?i)\\\\b(2|1)\\\\s*TB\\\\b')
+                        THEN 'SATA ' || regexp_extract(ci.name, '(?i)\\\\b(2|1)\\\\s*TB\\\\b', 1) || 'TB'
+                    WHEN ci.std_category = 'Storage' AND regexp_matches(ci.name, '(?i)\\\\bSATA\\\\b') AND regexp_matches(ci.name, '(?i)\\\\b(500|512|240|256|120|128)\\\\s*GB\\\\b')
+                        THEN 'SATA ' || regexp_extract(ci.name, '(?i)\\\\b(500|512|240|256|120|128)\\\\s*GB\\\\b', 1) || 'GB'
+                    WHEN ci.std_category = 'Storage' AND regexp_matches(ci.name, '(?i)\\\\bSSD\\\\b') AND regexp_matches(ci.name, '(?i)\\\\b(4|2|1)\\\\s*TB\\\\b')
+                        THEN 'SSD ' || regexp_extract(ci.name, '(?i)\\\\b(4|2|1)\\\\s*TB\\\\b', 1) || 'TB'
+                    WHEN ci.std_category = 'Storage' AND regexp_matches(ci.name, '(?i)\\\\bSSD\\\\b') AND regexp_matches(ci.name, '(?i)\\\\b(500|512|250|256|120|128)\\\\s*GB\\\\b')
+                        THEN 'SSD ' || regexp_extract(ci.name, '(?i)\\\\b(500|512|250|256|120|128)\\\\s*GB\\\\b', 1) || 'GB'
+                    WHEN ci.std_category = 'Storage' AND regexp_matches(ci.name, '(?i)\\\\b(HDD|Hard Disk|IronWolf|SkyHawk|BarraCuda|WD Purple|WD Red)\\\\b') THEN 'HDD'
+                    WHEN ci.std_category = 'Storage' AND regexp_matches(ci.name, '(?i)\\\\b(MicroSD|SDHC|SDXC|Flashdisk|Flash Drive|Cruzer)\\\\b') THEN 'Flash / SD'
 
-                    -- Dynamic Motherboard Chipsets (Intel Z/B/H/W, AMD X/B/A/TRX/WRX)
-                    WHEN ci.std_category = 'Motherboard' AND regexp_matches(ci.name, '(?i)\\b(Z890|Z790|Z690|B860|B760|B660|H810|H610|H510|W790)\\b')
-                        THEN 'Intel ' || upper(regexp_extract(ci.name, '(?i)\\b(Z890|Z790|Z690|B860|B760|B660|H810|H610|H510|W790)\\b', 1))
-                    WHEN ci.std_category = 'Motherboard' AND regexp_matches(ci.name, '(?i)\\b(X870E|X870|X670E|X670|B850|B650E|B650|B550|A620|B450|A520|A320|WRX90|TRX50)\\b')
-                        THEN 'AMD ' || upper(regexp_extract(ci.name, '(?i)\\b(X870E|X870|X670E|X670|B850|B650E|B650|B550|A620|B450|A520|A320|WRX90|TRX50)\\b', 1))
+                    -- Dynamic Motherboard Chipsets
+                    WHEN ci.std_category = 'Motherboard' AND regexp_matches(ci.name, '(?i)\\\\b(Z890|Z790|Z690|B860|B760|B660|H810|H610|H510|W790)\\\\b')
+                        THEN 'Intel ' || upper(regexp_extract(ci.name, '(?i)\\\\b(Z890|Z790|Z690|B860|B760|B660|H810|H610|H510|W790)\\\\b', 1))
+                    WHEN ci.std_category = 'Motherboard' AND regexp_matches(ci.name, '(?i)\\\\b(X870E|X870|X670E|X670|B850|B650E|B650|B550|A620|B450|A520|A320|WRX90|TRX50)\\\\b')
+                        THEN 'AMD ' || upper(regexp_extract(ci.name, '(?i)\\\\b(X870E|X870|X670E|X670|B850|B650E|B650|B550|A620|B450|A520|A320|WRX90|TRX50)\\\\b', 1))
 
                     -- Dynamic PSU Wattage
-                    WHEN ci.std_category = 'PSU' AND TRY_CAST(regexp_extract(ci.name, '(?i)\\b(\\d{{3,4}})\\s*W\\b', 1) AS INT) >= 1000 THEN '1000W+'
-                    WHEN ci.std_category = 'PSU' AND TRY_CAST(regexp_extract(ci.name, '(?i)\\b(\\d{{3,4}})\\s*W\\b', 1) AS INT) >= 850 THEN '850W'
-                    WHEN ci.std_category = 'PSU' AND TRY_CAST(regexp_extract(ci.name, '(?i)\\b(\\d{{3,4}})\\s*W\\b', 1) AS INT) >= 750 THEN '750W'
-                    WHEN ci.std_category = 'PSU' AND TRY_CAST(regexp_extract(ci.name, '(?i)\\b(\\d{{3,4}})\\s*W\\b', 1) AS INT) >= 650 THEN '650W'
-                    WHEN ci.std_category = 'PSU' AND TRY_CAST(regexp_extract(ci.name, '(?i)\\b(\\d{{3,4}})\\s*W\\b', 1) AS INT) >= 550 THEN '550W'
-                    WHEN ci.std_category = 'PSU' AND TRY_CAST(regexp_extract(ci.name, '(?i)\\b(\\d{{3,4}})\\s*W\\b', 1) AS INT) >= 500 THEN '500W'
-                    WHEN ci.std_category = 'PSU' AND TRY_CAST(regexp_extract(ci.name, '(?i)\\b(\\d{{3,4}})\\s*W\\b', 1) AS INT) >= 400 THEN '400W-450W'
+                    WHEN ci.std_category = 'PSU' AND TRY_CAST(regexp_extract(ci.name, '(?i)\\\\b(\\\\d{{3,4}})\\\\s*W\\\\b', 1) AS INT) >= 1000 THEN '1000W+'
+                    WHEN ci.std_category = 'PSU' AND TRY_CAST(regexp_extract(ci.name, '(?i)\\\\b(\\\\d{{3,4}})\\\\s*W\\\\b', 1) AS INT) >= 850 THEN '850W'
+                    WHEN ci.std_category = 'PSU' AND TRY_CAST(regexp_extract(ci.name, '(?i)\\\\b(\\\\d{{3,4}})\\\\s*W\\\\b', 1) AS INT) >= 750 THEN '750W'
+                    WHEN ci.std_category = 'PSU' AND TRY_CAST(regexp_extract(ci.name, '(?i)\\\\b(\\\\d{{3,4}})\\\\s*W\\\\b', 1) AS INT) >= 650 THEN '650W'
+                    WHEN ci.std_category = 'PSU' AND TRY_CAST(regexp_extract(ci.name, '(?i)\\\\b(\\\\d{{3,4}})\\\\s*W\\\\b', 1) AS INT) >= 550 THEN '550W'
+                    WHEN ci.std_category = 'PSU' AND TRY_CAST(regexp_extract(ci.name, '(?i)\\\\b(\\\\d{{3,4}})\\\\s*W\\\\b', 1) AS INT) >= 500 THEN '500W'
+                    WHEN ci.std_category = 'PSU' AND TRY_CAST(regexp_extract(ci.name, '(?i)\\\\b(\\\\d{{3,4}})\\\\s*W\\\\b', 1) AS INT) >= 400 THEN '400W-450W'
 
                     ELSE 'Standard'
                 END
@@ -307,9 +331,9 @@ def load_hardware_data(
                 WHEN ci.std_category IN ('Storage', 'RAM') THEN
                     ROUND(ci.price / NULLIF(
                         CASE 
-                            WHEN upper(regexp_extract(ci.name, '(?i)(\\d+)\\s*(GB|TB)', 2)) = 'TB' 
-                            THEN TRY_CAST(regexp_extract(ci.name, '(?i)(\\d+)\\s*(GB|TB)', 1) AS INT) * 1000
-                            ELSE TRY_CAST(regexp_extract(ci.name, '(?i)(\\d+)\\s*(GB|TB)', 1) AS INT)
+                            WHEN upper(regexp_extract(ci.name, '(?i)(\\\\d+)\\\\s*(GB|TB)', 2)) = 'TB' 
+                            THEN TRY_CAST(regexp_extract(ci.name, '(?i)(\\\\d+)\\\\s*(GB|TB)', 1) AS INT) * 1000
+                            ELSE TRY_CAST(regexp_extract(ci.name, '(?i)(\\\\d+)\\\\s*(GB|TB)', 1) AS INT)
                         END, 0
                     ))
                 ELSE NULL
@@ -319,7 +343,7 @@ def load_hardware_data(
         LEFT JOIN ai_cache ac ON ac.name = ci.name
     """)
 
-    # Check unclassified items in critical categories (GPU, CPU)
+    # 3. Check unclassified items and run AI fallback if enabled
     unclassified_rows = conn.execute("""
         SELECT DISTINCT name, std_category 
         FROM raw_catalog 
@@ -334,10 +358,118 @@ def load_hardware_data(
         if new_classifications:
             ai_cache.update(new_classifications)
             save_ai_cache(ai_cache_file, ai_cache)
-            # Re-run ingestion to apply newly cached classifications
             return load_hardware_data(
-                data_dir, ai_cache_file, use_ai_fallback=False, agent=agent
+                data_dir, ai_cache_file, benchmark_file=benchmark_file, use_ai_fallback=False, agent=agent
             )
+
+    # 4. Ingest and join real scraped PassMark benchmark datasets
+    bench_file = benchmark_file or DEFAULT_BENCHMARK_FILE
+    if bench_file and bench_file.exists():
+        logger.info(f"Ingesting live online benchmark ratings from {bench_file}...")
+        conn.execute(f"""
+            CREATE TABLE raw_benchmarks AS 
+            SELECT name, category, score, benchmark, segment 
+            FROM read_json_auto('{bench_file}')
+        """)
+
+        # GPU Desktop Benchmarks Link
+        conn.execute("""
+            CREATE TABLE gpu_tier_benchmarks AS 
+            WITH gpu_unique_tiers AS (
+                SELECT DISTINCT tier 
+                FROM raw_catalog 
+                WHERE std_category = 'GPU' AND tier != 'Standard'
+            ),
+            matched_gpus AS (
+                SELECT 
+                    gt.tier,
+                    b.name as bench_name,
+                    b.score as bench_score,
+                    b.benchmark as bench_type,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY gt.tier 
+                        ORDER BY 
+                            CASE WHEN lower(b.name) LIKE '%laptop%' OR lower(b.name) LIKE '%mobile%' THEN 1 ELSE 0 END ASC,
+                            length(b.name) ASC
+                    ) as rn
+                FROM gpu_unique_tiers gt
+                JOIN raw_benchmarks b ON b.category = 'GPU' 
+                    AND regexp_matches(b.name, '(?i)\\\\b' || replace(gt.tier, ' ', '\\\\s*') || '\\\\b')
+            )
+            SELECT tier, bench_name, bench_score, bench_type 
+            FROM matched_gpus 
+            WHERE rn = 1
+        """)
+
+        # CPU Series Benchmarks Link
+        conn.execute("""
+            CREATE TABLE cpu_series_benchmarks AS 
+            WITH cpu_bench_series AS (
+                SELECT 
+                    name,
+                    score,
+                    CASE 
+                        WHEN lower(name) LIKE '%threadripper%' THEN 'AMD Threadripper'
+                        WHEN lower(name) LIKE '%epyc%' THEN 'AMD EPYC'
+                        WHEN regexp_matches(name, '(?i)Ryzen\\\\s*(?:PRO\\\\s*)?9') THEN 'AMD Ryzen 9'
+                        WHEN regexp_matches(name, '(?i)Ryzen\\\\s*(?:PRO\\\\s*)?7') THEN 'AMD Ryzen 7'
+                        WHEN regexp_matches(name, '(?i)Ryzen\\\\s*(?:PRO\\\\s*)?5') THEN 'AMD Ryzen 5'
+                        WHEN regexp_matches(name, '(?i)Ryzen\\\\s*(?:PRO\\\\s*)?3') THEN 'AMD Ryzen 3'
+                        WHEN regexp_matches(name, '(?i)Core\\\\s*Ultra\\\\s*9') THEN 'Intel Core Ultra 9'
+                        WHEN regexp_matches(name, '(?i)Core\\\\s*Ultra\\\\s*7') THEN 'Intel Core Ultra 7'
+                        WHEN regexp_matches(name, '(?i)Core\\\\s*Ultra\\\\s*5') THEN 'Intel Core Ultra 5'
+                        WHEN regexp_matches(name, '(?i)Core\\\\s*i9') THEN 'Intel Core i9'
+                        WHEN regexp_matches(name, '(?i)Core\\\\s*i7') THEN 'Intel Core i7'
+                        WHEN regexp_matches(name, '(?i)Core\\\\s*i5') THEN 'Intel Core i5'
+                        WHEN regexp_matches(name, '(?i)Core\\\\s*i3') THEN 'Intel Core i3'
+                        WHEN lower(name) LIKE '%xeon%' THEN 'Intel Xeon'
+                        WHEN lower(name) LIKE '%pentium%' THEN 'Intel Pentium'
+                        WHEN lower(name) LIKE '%athlon%' THEN 'AMD Athlon'
+                        WHEN lower(name) LIKE '%celeron%' THEN 'Intel Celeron'
+                        ELSE 'Standard'
+                    END AS tier
+                FROM raw_benchmarks 
+                WHERE category = 'CPU'
+            )
+            SELECT 
+                tier,
+                median(score)::int as median_score,
+                max(score) as max_score,
+                count(*) as tested_models
+            FROM cpu_bench_series 
+            WHERE tier != 'Standard'
+            GROUP BY tier
+        """)
+
+        # Create enriched catalog with real benchmark value score (score per IDR 1 Million)
+        conn.execute("""
+            CREATE TABLE enriched_catalog AS 
+            SELECT 
+                rc.*,
+                gb.bench_name as gpu_bench_name,
+                gb.bench_score as gpu_bench_score,
+                cb.max_score as cpu_bench_score,
+                cb.median_score as cpu_median_score,
+                CASE 
+                    WHEN rc.std_category = 'GPU' AND gb.bench_score IS NOT NULL 
+                        THEN round(gb.bench_score / (rc.price / 1000000), 1)
+                    WHEN rc.std_category = 'CPU' AND cb.max_score IS NOT NULL 
+                        THEN round(cb.max_score / (rc.price / 1000000), 1)
+                    ELSE NULL
+                END AS value_score
+            FROM raw_catalog rc
+            LEFT JOIN gpu_tier_benchmarks gb ON gb.tier = rc.tier
+            LEFT JOIN cpu_series_benchmarks cb ON cb.tier = rc.tier
+        """)
+    else:
+        logger.warning("No benchmark file found. Run 'indoscraping run passmark' to scrape online benchmarks.")
+        conn.execute("""
+            CREATE TABLE enriched_catalog AS 
+            SELECT rc.*, NULL::VARCHAR as gpu_bench_name, NULL::INT as gpu_bench_score, NULL::INT as cpu_bench_score, NULL::INT as cpu_median_score, NULL::FLOAT as value_score 
+            FROM raw_catalog rc
+        """)
+        conn.execute("CREATE TABLE gpu_tier_benchmarks (tier VARCHAR, bench_name VARCHAR, bench_score INT, bench_type VARCHAR)")
+        conn.execute("CREATE TABLE cpu_series_benchmarks (tier VARCHAR, median_score INT, max_score INT, tested_models INT)")
 
     return conn
 
@@ -367,14 +499,15 @@ def extract_analytics(conn: duckdb.DuckDBPyConnection) -> Dict[str, Any]:
             count(*) FILTER (WHERE std_category IN ('GPU', 'CPU')) as count_core_silicon,
             count(*) FILTER (WHERE std_category IN ('GPU', 'CPU') AND tier != 'Standard') as count_core_classified,
             count(*) FILTER (WHERE tier = 'Standard' AND std_category IN ('GPU', 'CPU')) as count_unclassified_chips,
+            count(*) FILTER (WHERE value_score IS NOT NULL) as count_benchmark_enriched,
             max(scraped_at) as last_updated
-        FROM raw_catalog
+        FROM enriched_catalog
     """)[0]
 
     # 2. Category Distribution
     cat_dist = query_to_dicts(conn, """
         SELECT std_category as category, count(*) as count
-        FROM raw_catalog
+        FROM enriched_catalog
         GROUP BY std_category
         ORDER BY count DESC
     """)
@@ -388,80 +521,130 @@ def extract_analytics(conn: duckdb.DuckDBPyConnection) -> Dict[str, Any]:
             median(price) FILTER (WHERE source = 'enterkomputer')::int as median_enterkomputer,
             median(price) FILTER (WHERE source = 'viraindo')::int as median_viraindo,
             count(*) as total_count
-        FROM raw_catalog
+        FROM enriched_catalog
         GROUP BY std_category
         HAVING count(*) FILTER (WHERE source = 'enterkomputer') > 0 
            AND count(*) FILTER (WHERE source = 'viraindo') > 0
         ORDER BY total_count DESC
     """)
 
-    # 4. GPU Benchmarks (Top 25 Models sorted by median price)
+    # 4. GPU Benchmarks & Best Value (Points per IDR 1M)
+    gpu_value_rankings = query_to_dicts(conn, """
+        SELECT 
+            gb.tier,
+            gb.bench_name,
+            gb.bench_score,
+            median(ec.price)::int as median_price,
+            round(gb.bench_score / (median(ec.price) / 1000000), 1) as value_score,
+            count(*) as count
+        FROM enriched_catalog ec
+        JOIN gpu_tier_benchmarks gb ON gb.tier = ec.tier
+        WHERE ec.std_category = 'GPU'
+        GROUP BY gb.tier, gb.bench_name, gb.bench_score
+        ORDER BY value_score DESC
+        LIMIT 20
+    """)
+
+    # 5. GPU Efficiency Frontier Scatter Plot Data (Price vs PassMark G3D Mark)
+    gpu_scatter_data = query_to_dicts(conn, """
+        SELECT 
+            gb.tier,
+            round(median(ec.price) / 1000000, 2) as x,
+            gb.bench_score as y,
+            round(gb.bench_score / (median(ec.price) / 1000000), 1) as value_score,
+            count(*) as count
+        FROM enriched_catalog ec
+        JOIN gpu_tier_benchmarks gb ON gb.tier = ec.tier
+        WHERE ec.std_category = 'GPU'
+        GROUP BY gb.tier, gb.bench_score
+        ORDER BY x ASC
+    """)
+
+    # 6. CPU Value Rankings (PassMark Max Score / Price in Juta)
+    cpu_value_rankings = query_to_dicts(conn, """
+        SELECT 
+            cb.tier,
+            cb.max_score as bench_score,
+            cb.median_score,
+            cb.tested_models,
+            median(ec.price)::int as median_price,
+            round(cb.max_score / (median(ec.price) / 1000000), 1) as value_score,
+            count(*) as count
+        FROM enriched_catalog ec
+        JOIN cpu_series_benchmarks cb ON cb.tier = ec.tier
+        WHERE ec.std_category = 'CPU'
+        GROUP BY cb.tier, cb.max_score, cb.median_score, cb.tested_models
+        ORDER BY value_score DESC
+        LIMIT 15
+    """)
+
+    # 7. Standard GPU Series Benchmarks (by price)
     gpu_benchmarks = query_to_dicts(conn, """
         SELECT tier, count(*) as count, min(price) as min_price, median(price)::int as median_price, avg(price)::int as avg_price, max(price) as max_price
-        FROM raw_catalog WHERE std_category = 'GPU' AND tier != 'Standard'
+        FROM enriched_catalog WHERE std_category = 'GPU' AND tier != 'Standard'
         GROUP BY tier 
         ORDER BY median_price DESC
         LIMIT 25
     """)
 
-    # 5. CPU Benchmarks (Series benchmarks sorted by median price)
+    # 8. Standard CPU Series Benchmarks (by price)
     cpu_benchmarks = query_to_dicts(conn, """
         SELECT tier, count(*) as count, min(price) as min_price, median(price)::int as median_price, avg(price)::int as avg_price, max(price) as max_price
-        FROM raw_catalog WHERE std_category = 'CPU' AND tier != 'Standard'
+        FROM enriched_catalog WHERE std_category = 'CPU' AND tier != 'Standard'
         GROUP BY tier 
         ORDER BY median_price DESC
     """)
 
-    # 6. RAM Benchmarks
+    # 9. RAM Benchmarks
     ram_benchmarks = query_to_dicts(conn, """
         SELECT tier, count(*) as count, min(price) as min_price, median(price)::int as median_price, avg(price)::int as avg_price, max(price) as max_price
-        FROM raw_catalog WHERE std_category = 'RAM' AND tier != 'Standard'
+        FROM enriched_catalog WHERE std_category = 'RAM' AND tier != 'Standard'
         GROUP BY tier 
         ORDER BY median_price DESC
         LIMIT 15
     """)
 
-    # 7. Storage Benchmarks
+    # 10. Storage Benchmarks
     storage_benchmarks = query_to_dicts(conn, """
         SELECT tier, count(*) as count, min(price) as min_price, median(price)::int as median_price, avg(price)::int as avg_price, max(price) as max_price, avg(price_per_gb)::int as avg_price_per_gb
-        FROM raw_catalog WHERE std_category = 'Storage' AND tier != 'Standard'
+        FROM enriched_catalog WHERE std_category = 'Storage' AND tier != 'Standard'
         GROUP BY tier 
         ORDER BY median_price DESC
         LIMIT 15
     """)
 
-    # 8. Motherboard Benchmarks
+    # 11. Motherboard Benchmarks
     mobo_benchmarks = query_to_dicts(conn, """
         SELECT tier, count(*) as count, min(price) as min_price, median(price)::int as median_price, avg(price)::int as avg_price, max(price) as max_price
-        FROM raw_catalog WHERE std_category = 'Motherboard' AND tier != 'Standard'
+        FROM enriched_catalog WHERE std_category = 'Motherboard' AND tier != 'Standard'
         GROUP BY tier 
         ORDER BY median_price DESC
         LIMIT 20
     """)
 
-    # 9. PSU Benchmarks
+    # 12. PSU Benchmarks
     psu_benchmarks = query_to_dicts(conn, """
         SELECT tier, count(*) as count, min(price) as min_price, median(price)::int as median_price, avg(price)::int as avg_price, max(price) as max_price
-        FROM raw_catalog WHERE std_category = 'PSU' AND tier != 'Standard'
+        FROM enriched_catalog WHERE std_category = 'PSU' AND tier != 'Standard'
         GROUP BY tier 
         ORDER BY median_price DESC
     """)
 
-    # 10. Tray vs Box CPU Premium
+    # 13. Tray vs Box CPU Premium
     tray_vs_box = query_to_dicts(conn, """
         SELECT 
             tier,
             avg(price) FILTER (WHERE packaging = 'Tray')::int as avg_tray,
             avg(price) FILTER (WHERE packaging = 'Box')::int as avg_box,
             count(*) as count
-        FROM raw_catalog
+        FROM enriched_catalog
         WHERE std_category = 'CPU' AND tier IN ('AMD Ryzen 5', 'AMD Ryzen 7', 'Intel Core i5', 'Intel Core i7')
         GROUP BY tier
         HAVING avg_tray > 0 AND avg_box > 0
         ORDER BY count DESC
     """)
 
-    # 11. Full Products Table (All products)
+    # 14. Full Products Table (All products with value scores)
     table_items = query_to_dicts(conn, """
         SELECT 
             name,
@@ -472,10 +655,11 @@ def extract_analytics(conn: duckdb.DuckDBPyConnection) -> Dict[str, Any]:
             source,
             price,
             price_per_gb,
+            value_score,
             is_ai_classified,
             (tier = 'Standard' AND std_category IN ('GPU', 'CPU')) as is_unclassified_chip,
             url
-        FROM raw_catalog
+        FROM enriched_catalog
         ORDER BY std_category, price ASC
     """)
 
@@ -483,6 +667,9 @@ def extract_analytics(conn: duckdb.DuckDBPyConnection) -> Dict[str, Any]:
         "kpis": kpis,
         "cat_dist": cat_dist,
         "retailer_comparison": retailer_comparison,
+        "gpu_value_rankings": gpu_value_rankings,
+        "gpu_scatter_data": gpu_scatter_data,
+        "cpu_value_rankings": cpu_value_rankings,
         "gpu_benchmarks": gpu_benchmarks,
         "cpu_benchmarks": cpu_benchmarks,
         "ram_benchmarks": ram_benchmarks,
@@ -496,7 +683,7 @@ def extract_analytics(conn: duckdb.DuckDBPyConnection) -> Dict[str, Any]:
 
 
 def render_html_report(analytics: Dict[str, Any], output_path: Path) -> None:
-    """Generate modern, dark-themed standalone HTML dashboard."""
+    """Generate modern, interactive HTML dashboard with sorting, filtering, and value analytics."""
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     analytics_json = json.dumps(analytics, ensure_ascii=False)
@@ -506,7 +693,7 @@ def render_html_report(analytics: Dict[str, Any], output_path: Path) -> None:
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>pcomp — Indonesian PC Hardware Price Intelligence</title>
+  <title>pcomp — Indonesian PC Hardware Price Intelligence & Value Engine</title>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
   <style>
     :root {{
@@ -637,6 +824,15 @@ def render_html_report(analytics: Dict[str, Any], output_path: Path) -> None:
       color: var(--accent-cyan);
       border-color: var(--accent-cyan);
     }}
+    .nav-tab-highlight {{
+      color: var(--accent-emerald) !important;
+      border-color: rgba(16, 185, 129, 0.3) !important;
+    }}
+    .nav-tab-highlight.active {{
+      background: rgba(16, 185, 129, 0.15) !important;
+      color: #34d399 !important;
+      border-color: var(--accent-emerald) !important;
+    }}
 
     .tab-content {{ display: none; }}
     .tab-content.active {{ display: block; }}
@@ -666,7 +862,7 @@ def render_html_report(analytics: Dict[str, Any], output_path: Path) -> None:
     }}
     .chart-container {{
       position: relative;
-      height: 300px;
+      height: 320px;
       width: 100%;
     }}
 
@@ -709,6 +905,14 @@ def render_html_report(analytics: Dict[str, Any], output_path: Path) -> None:
       display: flex;
       flex-wrap: wrap;
       gap: 0.5rem;
+      align-items: center;
+    }}
+    .filter-label {{
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      font-weight: 600;
+      margin-right: 0.25rem;
     }}
     .filter-btn {{
       background: #1f2937;
@@ -725,6 +929,12 @@ def render_html_report(analytics: Dict[str, Any], output_path: Path) -> None:
       color: #000;
       font-weight: 700;
       border-color: var(--accent-cyan);
+    }}
+    .filter-btn-emerald.active {{
+      background: var(--accent-emerald);
+      color: #000;
+      border-color: var(--accent-emerald);
+      font-weight: 700;
     }}
     .filter-btn-alert {{
       background: rgba(244, 63, 94, 0.15);
@@ -754,7 +964,18 @@ def render_html_report(analytics: Dict[str, Any], output_path: Path) -> None:
       padding: 0.75rem 1rem;
       font-weight: 600;
       border-bottom: 1px solid var(--card-border);
+      cursor: pointer;
+      user-select: none;
+      transition: background 0.15s;
     }}
+    th:hover {{ background: #1c2b44; color: #fff; }}
+    th .sort-icon {{
+      display: inline-block;
+      margin-left: 0.35rem;
+      font-size: 0.75rem;
+      color: #64748b;
+    }}
+    th.sorted .sort-icon {{ color: var(--accent-cyan); }}
     td {{
       padding: 0.7rem 1rem;
       border-bottom: 1px solid #1a2333;
@@ -773,6 +994,8 @@ def render_html_report(analytics: Dict[str, Any], output_path: Path) -> None:
     .badge-tier {{ background: #334155; color: #cbd5e1; }}
     .badge-brand {{ background: #1e1b4b; color: #a5b4fc; border: 1px solid #4338ca; }}
     .badge-unit {{ background: #064e3b; color: #6ee7b7; font-size: 0.7rem; }}
+    .badge-value {{ background: rgba(16, 185, 129, 0.25); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.5); font-weight: 700; }}
+    .badge-top-value {{ background: linear-gradient(135deg, #059669, #0284c7); color: #fff; font-size: 0.7rem; font-weight: 800; border-radius: 9999px; padding: 0.15rem 0.5rem; }}
     .badge-ai {{ background: rgba(139, 92, 246, 0.25); color: #c084fc; border: 1px solid rgba(139, 92, 246, 0.4); font-size: 0.7rem; }}
     .badge-unclassified {{ background: rgba(244, 63, 94, 0.25); color: #fb7185; border: 1px solid rgba(244, 63, 94, 0.5); }}
     .price-cell {{
@@ -807,12 +1030,12 @@ def render_html_report(analytics: Dict[str, Any], output_path: Path) -> None:
     <div class="brand">
       <div class="brand-icon">⚡</div>
       <div class="brand-text">
-        <h1>pcomp — Indonesian PC Hardware Price Intelligence</h1>
-        <p>Local DuckDB Analytics & Price Comparison Engine (EnterKomputer & Viraindo)</p>
+        <h1>pcomp — Indonesian PC Hardware Price & Value Intelligence</h1>
+        <p>DuckDB Price Intelligence & Live PassMark Benchmark Scoring Engine</p>
       </div>
     </div>
     <div class="header-badge">
-      Generated: <strong>{analytics["generated_at"]}</strong> • Engine: <strong>DuckDB + Dynamic Grammar & AI Fallback</strong>
+      Generated: <strong>{analytics["generated_at"]}</strong> • Engine: <strong>DuckDB + PassMark G3D/CPU Mark</strong>
     </div>
   </header>
 
@@ -824,19 +1047,19 @@ def render_html_report(analytics: Dict[str, Any], output_path: Path) -> None:
       <div class="kpi-subtext">{analytics["kpis"]["total_categories"]} hardware categories</div>
     </div>
     <div class="kpi-card">
-      <div class="kpi-label">Silicon Recognition</div>
+      <div class="kpi-label">Core Silicon Recognition</div>
       <div class="kpi-value">{round((analytics["kpis"]["count_core_classified"] / max(analytics["kpis"]["count_core_silicon"], 1)) * 100, 1)}%</div>
       <div class="kpi-subtext">{analytics["kpis"]["count_classified"]:,} hardware tiered ({analytics["kpis"]["count_ai_classified"]} by AI cache)</div>
     </div>
     <div class="kpi-card">
-      <div class="kpi-label">EnterKomputer Catalog</div>
-      <div class="kpi-value">{analytics["kpis"]["count_enterkomputer"]:,}</div>
-      <div class="kpi-subtext">Live JSON API scrape</div>
+      <div class="kpi-label">Benchmark Enriched Items</div>
+      <div class="kpi-value">{analytics["kpis"]["count_benchmark_enriched"]:,}</div>
+      <div class="kpi-subtext">Scored by live online PassMark ratings</div>
     </div>
     <div class="kpi-card">
-      <div class="kpi-label">Viraindo Catalog</div>
-      <div class="kpi-value">{analytics["kpis"]["count_viraindo"]:,}</div>
-      <div class="kpi-subtext">Pricelist table scrape</div>
+      <div class="kpi-label">EnterKomputer / Viraindo</div>
+      <div class="kpi-value">{analytics["kpis"]["count_enterkomputer"]:,} / {analytics["kpis"]["count_viraindo"]:,}</div>
+      <div class="kpi-subtext">Live JSON API + Web Pricelist scrape</div>
     </div>
     <div class="kpi-card">
       <div class="kpi-label">Average Catalog Price</div>
@@ -847,7 +1070,8 @@ def render_html_report(analytics: Dict[str, Any], output_path: Path) -> None:
 
   <!-- Interactive Analytical Section Tabs -->
   <nav class="section-nav">
-    <button class="nav-tab active" onclick="switchTab('tab-overview')">📊 Market Overview</button>
+    <button class="nav-tab active nav-tab-highlight" onclick="switchTab('tab-value')">💎 Best Value (Price-to-Performance)</button>
+    <button class="nav-tab" onclick="switchTab('tab-overview')">📊 Market Overview</button>
     <button class="nav-tab" onclick="switchTab('tab-gpu')">🎮 GPU Benchmarks</button>
     <button class="nav-tab" onclick="switchTab('tab-cpu')">🧠 CPU & Tray vs Box</button>
     <button class="nav-tab" onclick="switchTab('tab-ram')">⚡ RAM (DDR4 vs DDR5)</button>
@@ -855,8 +1079,35 @@ def render_html_report(analytics: Dict[str, Any], output_path: Path) -> None:
     <button class="nav-tab" onclick="switchTab('tab-mobo-psu')">🔌 Motherboard & PSU</button>
   </nav>
 
+  <!-- TAB 0: Best Value (Price-to-Performance) -->
+  <div id="tab-value" class="tab-content active">
+    <section class="charts-grid">
+      <div class="chart-card" style="grid-column: 1 / -1;">
+        <h2>GPU Efficiency Frontier: Price vs 3D Graphics Performance</h2>
+        <p>Live scatter plot of Median Price (IDR Millions) vs PassMark G3D Mark. Points near top-left represent optimal price-to-performance champions.</p>
+        <div class="chart-container" style="height: 420px;">
+          <canvas id="gpuScatterChart"></canvas>
+        </div>
+      </div>
+      <div class="chart-card">
+        <h2>Top 15 GPU Bang-for-Buck (Points / Rp 1M)</h2>
+        <p>Ranked by pure 3D graphics performance delivered per million Rupiah</p>
+        <div class="chart-container" style="height: 380px;">
+          <canvas id="gpuValueChart"></canvas>
+        </div>
+      </div>
+      <div class="chart-card">
+        <h2>Top 15 CPU Compute Value (Points / Rp 1M)</h2>
+        <p>Ranked by multi-threaded computing power delivered per million Rupiah</p>
+        <div class="chart-container" style="height: 380px;">
+          <canvas id="cpuValueChart"></canvas>
+        </div>
+      </div>
+    </section>
+  </div>
+
   <!-- TAB 1: Market Overview -->
-  <div id="tab-overview" class="tab-content active">
+  <div id="tab-overview" class="tab-content">
     <section class="charts-grid">
       <div class="chart-card">
         <h2>Average Price: EnterKomputer vs Viraindo</h2>
@@ -966,32 +1217,48 @@ def render_html_report(analytics: Dict[str, Any], output_path: Path) -> None:
     <div class="explorer-header">
       <div>
         <h2>Hardware Product Explorer ({analytics["kpis"]["total_items"]:,} Products)</h2>
-        <p>Instant search and multi-retailer catalog inspector powered by local DuckDB</p>
+        <p>Instant multi-criteria search, column sorting, and benchmark value inspector</p>
       </div>
     </div>
 
     <div class="explorer-controls">
-      <input type="text" id="searchInput" class="search-input" placeholder="🔍 Search product name, chipset, or brand (e.g. RTX 5080, RX 9070, B650, DDR5, NVMe, Corsair, Seasonic)..." oninput="handleSearch()">
+      <input type="text" id="searchInput" class="search-input" placeholder="🔍 Search product name, chipset, or brand (e.g. RTX 4070, B650, DDR5, NVMe, Seasonic)..." oninput="handleSearch()">
       
+      <!-- Category Filter Buttons -->
       <div class="filter-btn-group" id="categoryFilters">
-        <button class="filter-btn active" data-cat="all" onclick="setCategoryFilter('all')">All Categories</button>
-        <button class="filter-btn" data-cat="GPU" onclick="setCategoryFilter('GPU')">GPU ({len([x for x in analytics['table_items'] if x['category'] == 'GPU']):,})</button>
-        <button class="filter-btn" data-cat="CPU" onclick="setCategoryFilter('CPU')">CPU ({len([x for x in analytics['table_items'] if x['category'] == 'CPU']):,})</button>
-        <button class="filter-btn" data-cat="RAM" onclick="setCategoryFilter('RAM')">RAM ({len([x for x in analytics['table_items'] if x['category'] == 'RAM']):,})</button>
-        <button class="filter-btn" data-cat="Storage" onclick="setCategoryFilter('Storage')">Storage ({len([x for x in analytics['table_items'] if x['category'] == 'Storage']):,})</button>
-        <button class="filter-btn" data-cat="Motherboard" onclick="setCategoryFilter('Motherboard')">Motherboard ({len([x for x in analytics['table_items'] if x['category'] == 'Motherboard']):,})</button>
-        <button class="filter-btn" data-cat="PSU" onclick="setCategoryFilter('PSU')">PSU ({len([x for x in analytics['table_items'] if x['category'] == 'PSU']):,})</button>
-        <button class="filter-btn" data-cat="Monitor" onclick="setCategoryFilter('Monitor')">Monitor ({len([x for x in analytics['table_items'] if x['category'] == 'Monitor']):,})</button>
-        <button class="filter-btn" data-cat="Cooler" onclick="setCategoryFilter('Cooler')">Cooler ({len([x for x in analytics['table_items'] if x['category'] == 'Cooler']):,})</button>
-        <button class="filter-btn" data-cat="Casing" onclick="setCategoryFilter('Casing')">Casing ({len([x for x in analytics['table_items'] if x['category'] == 'Casing']):,})</button>
-        <button class="filter-btn" data-cat="Peripheral" onclick="setCategoryFilter('Peripheral')">Peripherals ({len([x for x in analytics['table_items'] if x['category'] == 'Peripheral']):,})</button>
-        <button class="filter-btn filter-btn-alert" data-cat="unclassified" onclick="setCategoryFilter('unclassified')">⚠️ Unclassified Silicon ({len([x for x in analytics['table_items'] if x.get('is_unclassified_chip')]):,})</button>
+        <span class="filter-label">Category:</span>
+        <button class="filter-btn active" data-cat="all" onclick="setCategoryFilter('all')">All</button>
+        <button class="filter-btn" data-cat="GPU" onclick="setCategoryFilter('GPU')">GPU</button>
+        <button class="filter-btn" data-cat="CPU" onclick="setCategoryFilter('CPU')">CPU</button>
+        <button class="filter-btn" data-cat="RAM" onclick="setCategoryFilter('RAM')">RAM</button>
+        <button class="filter-btn" data-cat="Storage" onclick="setCategoryFilter('Storage')">Storage</button>
+        <button class="filter-btn" data-cat="Motherboard" onclick="setCategoryFilter('Motherboard')">Motherboard</button>
+        <button class="filter-btn" data-cat="PSU" onclick="setCategoryFilter('PSU')">PSU</button>
+        <button class="filter-btn" data-cat="Monitor" onclick="setCategoryFilter('Monitor')">Monitor</button>
+        <button class="filter-btn" data-cat="Cooler" onclick="setCategoryFilter('Cooler')">Cooler</button>
+        <button class="filter-btn" data-cat="Casing" onclick="setCategoryFilter('Casing')">Casing</button>
+        <button class="filter-btn" data-cat="Peripheral" onclick="setCategoryFilter('Peripheral')">Peripherals</button>
+        <button class="filter-btn filter-btn-alert" data-cat="unclassified" onclick="setCategoryFilter('unclassified')">⚠️ Unclassified</button>
       </div>
 
+      <!-- Price Range Quick Filters -->
+      <div class="filter-btn-group" id="priceFilters">
+        <span class="filter-label">Price Bracket:</span>
+        <button class="filter-btn active" data-price="all" onclick="setPriceFilter('all')">All Prices</button>
+        <button class="filter-btn" data-price="u3" onclick="setPriceFilter('u3')">&lt; Rp 3M</button>
+        <button class="filter-btn" data-price="3-10" onclick="setPriceFilter('3-10')">Rp 3M – 10M</button>
+        <button class="filter-btn" data-price="10-25" onclick="setPriceFilter('10-25')">Rp 10M – 25M</button>
+        <button class="filter-btn" data-price="o25" onclick="setPriceFilter('o25')">&gt; Rp 25M</button>
+      </div>
+
+      <!-- Retailer & Special Filters -->
       <div class="filter-btn-group" id="retailerFilters">
+        <span class="filter-label">Retailer:</span>
         <button class="filter-btn active" data-ret="all" onclick="setRetailerFilter('all')">All Retailers</button>
         <button class="filter-btn" data-ret="enterkomputer" onclick="setRetailerFilter('enterkomputer')">EnterKomputer</button>
         <button class="filter-btn" data-ret="viraindo" onclick="setRetailerFilter('viraindo')">Viraindo</button>
+        <span style="border-left: 1px solid #374151; height: 16px; margin: 0 0.3rem;"></span>
+        <button class="filter-btn filter-btn-emerald" id="topValueBtn" onclick="toggleTopValueFilter()">💎 Top Value Only</button>
       </div>
     </div>
 
@@ -999,12 +1266,13 @@ def render_html_report(analytics: Dict[str, Any], output_path: Path) -> None:
       <table id="productTable">
         <thead>
           <tr>
-            <th>Product Name</th>
-            <th width="110">Category</th>
-            <th width="170">Tier / Silicon Model</th>
-            <th width="120">Brand</th>
-            <th width="130">Retailer</th>
-            <th width="150" style="text-align: right;">Price (IDR)</th>
+            <th onclick="sortTable('name')">Product Name <span class="sort-icon" id="sort-name">⇅</span></th>
+            <th width="110" onclick="sortTable('category')">Category <span class="sort-icon" id="sort-category">⇅</span></th>
+            <th width="170" onclick="sortTable('tier')">Tier / Silicon Model <span class="sort-icon" id="sort-tier">⇅</span></th>
+            <th width="120" onclick="sortTable('brand')">Brand <span class="sort-icon" id="sort-brand">⇅</span></th>
+            <th width="130" onclick="sortTable('source')">Retailer <span class="sort-icon" id="sort-source">⇅</span></th>
+            <th width="150" style="text-align: right;" onclick="sortTable('price')">Price (IDR) <span class="sort-icon" id="sort-price">▲</span></th>
+            <th width="140" style="text-align: right;" onclick="sortTable('value_score')">Value Score <span class="sort-icon" id="sort-value_score">⇅</span></th>
           </tr>
         </thead>
         <tbody id="tableBody">
@@ -1039,6 +1307,104 @@ def render_html_report(analytics: Dict[str, Any], output_path: Path) -> None:
 
     // Render All Charts on Load
     window.addEventListener("DOMContentLoaded", () => {{
+      // 0. GPU Scatter Plot (Efficiency Frontier)
+      const scatterCtx = document.getElementById("gpuScatterChart").getContext("2d");
+      new Chart(scatterCtx, {{
+        type: 'scatter',
+        data: {{
+          datasets: [{{
+            label: 'GPU Models',
+            data: data.gpu_scatter_data.map(d => ({{ x: d.x, y: d.y, tier: d.tier, value: d.value_score, count: d.count }})),
+            backgroundColor: '#06b6d4',
+            borderColor: '#38bdf8',
+            pointRadius: 6,
+            pointHoverRadius: 9
+          }}]
+        }},
+        options: {{
+          responsive: true, maintainAspectRatio: false,
+          plugins: {{
+            legend: {{ display: false }},
+            tooltip: {{
+              callbacks: {{
+                label: (ctx) => {{
+                  const pt = ctx.raw;
+                  return `${{pt.tier}}: Rp ${{pt.x}}M | PassMark: ${{pt.y.toLocaleString()}} (${{pt.value}} pts/M)`;
+                }}
+              }}
+            }}
+          }},
+          scales: {{
+            x: {{
+              title: {{ display: true, text: 'Median Price (IDR Millions)', color: '#9ca3af' }},
+              ticks: {{ color: '#9ca3af' }}, grid: {{ color: '#1f293d' }}
+            }},
+            y: {{
+              title: {{ display: true, text: 'PassMark G3D Mark Score', color: '#9ca3af' }},
+              ticks: {{ color: '#9ca3af' }}, grid: {{ color: '#1f293d' }}
+            }}
+          }}
+        }}
+      }});
+
+      // 0b. GPU Value Bar Chart (Points / Rp 1M)
+      const gpuValCtx = document.getElementById("gpuValueChart").getContext("2d");
+      new Chart(gpuValCtx, {{
+        type: 'bar',
+        data: {{
+          labels: data.gpu_value_rankings.map(d => d.tier),
+          datasets: [{{
+            label: 'Score / Rp 1M',
+            data: data.gpu_value_rankings.map(d => d.value_score),
+            backgroundColor: '#10b981', borderRadius: 6
+          }}]
+        }},
+        options: {{
+          indexAxis: 'y', responsive: true, maintainAspectRatio: false,
+          plugins: {{
+            legend: {{ display: false }},
+            tooltip: {{
+              callbacks: {{
+                label: (ctx) => `${{ctx.raw}} pts/M (Rp ${{ (data.gpu_value_rankings[ctx.dataIndex].median_price / 1e6).toFixed(2) }}M)`
+              }}
+            }}
+          }},
+          scales: {{
+            x: {{ ticks: {{ color: '#9ca3af' }}, grid: {{ color: '#1f293d' }} }},
+            y: {{ ticks: {{ color: '#9ca3af' }}, grid: {{ display: false }} }}
+          }}
+        }}
+      }});
+
+      // 0c. CPU Value Bar Chart (PassMark / Rp 1M)
+      const cpuValCtx = document.getElementById("cpuValueChart").getContext("2d");
+      new Chart(cpuValCtx, {{
+        type: 'bar',
+        data: {{
+          labels: data.cpu_value_rankings.map(d => d.tier),
+          datasets: [{{
+            label: 'Compute / Rp 1M',
+            data: data.cpu_value_rankings.map(d => d.value_score),
+            backgroundColor: '#8b5cf6', borderRadius: 6
+          }}]
+        }},
+        options: {{
+          indexAxis: 'y', responsive: true, maintainAspectRatio: false,
+          plugins: {{
+            legend: {{ display: false }},
+            tooltip: {{
+              callbacks: {{
+                label: (ctx) => `${{ctx.raw}} pts/M (Rp ${{ (data.cpu_value_rankings[ctx.dataIndex].median_price / 1e6).toFixed(2) }}M)`
+              }}
+            }}
+          }},
+          scales: {{
+            x: {{ ticks: {{ color: '#9ca3af' }}, grid: {{ color: '#1f293d' }} }},
+            y: {{ ticks: {{ color: '#9ca3af' }}, grid: {{ display: false }} }}
+          }}
+        }}
+      }});
+
       // 1. Retailer Price Comparison Bar Chart
       const retCtx = document.getElementById("retailerCompChart").getContext("2d");
       new Chart(retCtx, {{
@@ -1174,7 +1540,7 @@ def render_html_report(analytics: Dict[str, Any], output_path: Path) -> None:
           plugins: {{ legend: {{ display: false }} }},
           scales: {{
             x: {{ ticks: {{ color: '#9ca3af' }}, grid: {{ color: '#1f293d' }} }},
-            y: {{ ticks: {{ color: '#9ca3af' }}, grid: {{ color: '#1f293d' }} }}
+            y: {{ ticks: {{ color: '#9ca3af' }}, grid: {{ display: false }} }}
           }}
         }}
       }});
@@ -1219,7 +1585,7 @@ def render_html_report(analytics: Dict[str, Any], output_path: Path) -> None:
           plugins: {{ legend: {{ display: false }} }},
           scales: {{
             x: {{ ticks: {{ color: '#9ca3af' }}, grid: {{ color: '#1f293d' }} }},
-            y: {{ ticks: {{ color: '#9ca3af' }}, grid: {{ color: '#1f293d' }} }}
+            y: {{ ticks: {{ color: '#9ca3af' }}, grid: {{ display: false }} }}
           }}
         }}
       }});
@@ -1263,7 +1629,7 @@ def render_html_report(analytics: Dict[str, Any], output_path: Path) -> None:
           plugins: {{ legend: {{ display: false }} }},
           scales: {{
             x: {{ ticks: {{ color: '#9ca3af' }}, grid: {{ color: '#1f293d' }} }},
-            y: {{ ticks: {{ color: '#9ca3af' }}, grid: {{ color: '#1f293d' }} }}
+            y: {{ ticks: {{ color: '#9ca3af' }}, grid: {{ display: false }} }}
           }}
         }}
       }});
@@ -1272,10 +1638,14 @@ def render_html_report(analytics: Dict[str, Any], output_path: Path) -> None:
       renderTable();
     }});
 
-    // Table Filter and Pagination Logic
+    // Table Filter, Column Sorting, and Pagination Logic
     let currentCategory = 'all';
     let currentRetailer = 'all';
+    let currentPriceFilter = 'all';
+    let topValueOnly = false;
     let searchQuery = '';
+    let sortColumn = 'price';
+    let sortDirection = 'asc';
     let currentPage = 1;
     const pageSize = 50;
     let filteredItems = [];
@@ -1289,11 +1659,29 @@ def render_html_report(analytics: Dict[str, Any], output_path: Path) -> None:
       renderTable();
     }}
 
+    function setPriceFilter(pRange) {{
+      currentPriceFilter = pRange;
+      document.querySelectorAll('#priceFilters .filter-btn').forEach(btn => {{
+        btn.classList.toggle('active', btn.getAttribute('data-price') === pRange);
+      }});
+      currentPage = 1;
+      renderTable();
+    }}
+
     function setRetailerFilter(ret) {{
       currentRetailer = ret;
       document.querySelectorAll('#retailerFilters .filter-btn').forEach(btn => {{
-        btn.classList.toggle('active', btn.getAttribute('data-ret') === ret);
+        if (btn.hasAttribute('data-ret')) {{
+          btn.classList.toggle('active', btn.getAttribute('data-ret') === ret);
+        }}
       }});
+      currentPage = 1;
+      renderTable();
+    }}
+
+    function toggleTopValueFilter() {{
+      topValueOnly = !topValueOnly;
+      document.getElementById('topValueBtn').classList.toggle('active', topValueOnly);
       currentPage = 1;
       renderTable();
     }}
@@ -1304,6 +1692,28 @@ def render_html_report(analytics: Dict[str, Any], output_path: Path) -> None:
       renderTable();
     }}
 
+    function sortTable(column) {{
+      if (sortColumn === column) {{
+        sortDirection = sortDirection === 'asc' ? 'desc' : 'asc';
+      }} else {{
+        sortColumn = column;
+        sortDirection = (column === 'value_score' || column === 'price_per_gb') ? 'desc' : 'asc';
+      }}
+      updateSortIndicators();
+      currentPage = 1;
+      renderTable();
+    }}
+
+    function updateSortIndicators() {{
+      document.querySelectorAll('th').forEach(th => th.classList.remove('sorted'));
+      document.querySelectorAll('.sort-icon').forEach(icon => icon.textContent = '⇅');
+
+      const activeTh = document.querySelector(`th[onclick*="'${{sortColumn}}'"]`);
+      const activeIcon = document.getElementById(`sort-${{sortColumn}}`);
+      if (activeTh) activeTh.classList.add('sorted');
+      if (activeIcon) activeIcon.textContent = sortDirection === 'asc' ? '▲' : '▼';
+    }}
+
     function changePage(delta) {{
       currentPage += delta;
       renderTable();
@@ -1311,6 +1721,7 @@ def render_html_report(analytics: Dict[str, Any], output_path: Path) -> None:
 
     function renderTable() {{
       filteredItems = data.table_items.filter(item => {{
+        // Category Filter
         let matchCat = false;
         if (currentCategory === 'all') {{
           matchCat = true;
@@ -1320,12 +1731,44 @@ def render_html_report(analytics: Dict[str, Any], output_path: Path) -> None:
           matchCat = item.category === currentCategory;
         }}
 
+        // Retailer Filter
         const matchRet = currentRetailer === 'all' || item.source === currentRetailer;
+
+        // Price Range Filter
+        let matchPrice = true;
+        if (currentPriceFilter === 'u3') matchPrice = item.price < 3000000;
+        else if (currentPriceFilter === '3-10') matchPrice = item.price >= 3000000 && item.price <= 10000000;
+        else if (currentPriceFilter === '10-25') matchPrice = item.price > 10000000 && item.price <= 25000000;
+        else if (currentPriceFilter === 'o25') matchPrice = item.price > 25000000;
+
+        // Top Value Filter
+        let matchTopVal = true;
+        if (topValueOnly) {{
+          matchTopVal = item.value_score && item.value_score >= 2000;
+        }}
+
+        // Search Query Filter
         const matchSearch = !searchQuery || 
           item.name.toLowerCase().includes(searchQuery) || 
           item.tier.toLowerCase().includes(searchQuery) ||
           item.brand.toLowerCase().includes(searchQuery);
-        return matchCat && matchRet && matchSearch;
+
+        return matchCat && matchRet && matchPrice && matchTopVal && matchSearch;
+      }});
+
+      // Column Sorting
+      filteredItems.sort((a, b) => {{
+        let valA = a[sortColumn];
+        let valB = b[sortColumn];
+
+        if (valA === null || valA === undefined) return 1;
+        if (valB === null || valB === undefined) return -1;
+
+        if (typeof valA === 'string') {{
+          const cmp = valA.localeCompare(valB);
+          return sortDirection === 'asc' ? cmp : -cmp;
+        }}
+        return sortDirection === 'asc' ? valA - valB : valB - valA;
       }});
 
       const totalPages = Math.ceil(filteredItems.length / pageSize) || 1;
@@ -1339,7 +1782,7 @@ def render_html_report(analytics: Dict[str, Any], output_path: Path) -> None:
       tbody.innerHTML = '';
 
       if (pageItems.length === 0) {{
-        tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; padding: 2rem; color: #94a3b8;">No matching products found.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="7" style="text-align:center; padding: 2rem; color: #94a3b8;">No matching products found.</td></tr>';
       }} else {{
         pageItems.forEach(item => {{
           const tr = document.createElement('tr');
@@ -1359,6 +1802,17 @@ def render_html_report(analytics: Dict[str, Any], output_path: Path) -> None:
             ? `<span class="badge badge-unclassified">⚠️ Unclassified</span>` 
             : '';
 
+          let valueBadge = '';
+          if (item.value_score) {{
+            const isHighVal = item.value_score >= 3000;
+            valueBadge = `
+              <span class="badge badge-value">${{item.value_score.toLocaleString()}} pts/M</span>
+              ${{isHighVal ? '<span class="badge badge-top-value">🏆 Top Value</span>' : ''}}
+            `;
+          }} else {{
+            valueBadge = '<span style="color:#64748b; font-size: 0.8rem;">—</span>';
+          }}
+
           tr.innerHTML = `
             <td>
               ${{nameHtml}}
@@ -1372,6 +1826,9 @@ def render_html_report(analytics: Dict[str, Any], output_path: Path) -> None:
             <td style="text-align: right;" class="price-cell">
               ${{formatRp(item.price)}}
               ${{unitBadge ? '<br>' + unitBadge : ''}}
+            </td>
+            <td style="text-align: right;">
+              ${{valueBadge}}
             </td>
           `;
           tbody.appendChild(tr);
@@ -1408,6 +1865,12 @@ def main() -> None:
         help="Destination path for generated dashboard HTML",
     )
     parser.add_argument(
+        "--benchmark-file",
+        type=Path,
+        default=DEFAULT_BENCHMARK_FILE,
+        help="Path to scraped PassMark hardware benchmark JSON",
+    )
+    parser.add_argument(
         "--ai-cache",
         type=Path,
         default=DEFAULT_AI_CACHE_FILE,
@@ -1425,6 +1888,11 @@ def main() -> None:
         help="Agent engine for fallback classification (default: auto)",
     )
     parser.add_argument(
+        "--export-public",
+        action="store_true",
+        help="Export generated dashboard directly to public web directory (nichsedge.github.io/public/pcomp/)",
+    )
+    parser.add_argument(
         "--open",
         action="store_true",
         help="Automatically launch the generated HTML report in your browser",
@@ -1436,6 +1904,7 @@ def main() -> None:
         conn = load_hardware_data(
             data_dir=args.data_dir,
             ai_cache_file=args.ai_cache,
+            benchmark_file=args.benchmark_file,
             use_ai_fallback=args.ai_fallback,
             agent=args.agent,
         )
@@ -1446,8 +1915,14 @@ def main() -> None:
         print(f"📊 Report: file://{args.output.resolve()}")
         print(f"🔬 Total Items: {analytics['kpis']['total_items']:,}")
         print(f"🎯 Core Silicon Recognition: {round((analytics['kpis']['count_core_classified'] / max(analytics['kpis']['count_core_silicon'], 1)) * 100, 1)}% ({analytics['kpis']['count_core_classified']:,}/{analytics['kpis']['count_core_silicon']:,} GPU/CPU)")
+        print(f"💎 Benchmark Enriched: {analytics['kpis']['count_benchmark_enriched']:,} items with live PassMark scores")
         print(f"⚙️ Internal Hardware Tiered: {analytics['kpis']['count_classified']:,} items")
         print(f"🤖 AI Cache Items: {analytics['kpis']['count_ai_classified']}\n")
+
+        if args.export_public:
+            render_html_report(analytics, DEFAULT_PUBLIC_EXPORT_HTML)
+            print(f"🌐 Public static dashboard exported to: {DEFAULT_PUBLIC_EXPORT_HTML}")
+            print(f"   Live at: https://nichsedge.me/pcomp/ (upon git push in nichsedge.github.io)\n")
 
         if args.open:
             webbrowser.open(f"file://{args.output.resolve()}")
