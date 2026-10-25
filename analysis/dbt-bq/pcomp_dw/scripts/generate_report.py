@@ -219,7 +219,8 @@ def load_hardware_data(
         )
 
     # 2. Raw catalog ingestion with dynamic grammar extraction
-    conn.execute(f"""
+    conn.execute(
+        """
         CREATE TABLE raw_catalog AS 
         WITH cleaned_input AS (
             SELECT 
@@ -260,65 +261,65 @@ def load_hardware_data(
                 ac.tier,
                 CASE 
                     -- Dynamic GPU Grammar
-                    WHEN ci.std_category = 'GPU' AND regexp_matches(ci.name, '(?i)\\\\b(RTX\\\\s*\\\\d{{3,4}}M?(?:\\\\s*(?:Ti\\\\s*SUPER|Ti|SUPER))?|GTX\\\\s*\\\\d{{3,4}}M?(?:\\\\s*Ti)?|GT\\\\s*\\\\d{{3,4}}|RX\\\\s*\\\\d{{3,4}}(?:\\\\s*(?:XTX|XT|GRE))?|Radeon\\\\s*(?:AI\\\\s*PRO\\\\s*|PRO\\\\s*)?(?:W\\\\d{{4}}|WX\\\\d{{4}}|R?\\\\d{{4}})[A-Z]*|Arc\\\\s*(?:Pro\\\\s*)?[A-Z]?\\\\d{{2,3}}|Quadro\\\\s*(?:RTX\\\\s*)?[A-Z0-9]+)\\\\b')
-                        THEN upper(regexp_replace(regexp_extract(ci.name, '(?i)\\\\b(RTX\\\\s*\\\\d{{3,4}}M?(?:\\\\s*(?:Ti\\\\s*SUPER|Ti|SUPER))?|GTX\\\\s*\\\\d{{3,4}}M?(?:\\\\s*Ti)?|GT\\\\s*\\\\d{{3,4}}|RX\\\\s*\\\\d{{3,4}}(?:\\\\s*(?:XTX|XT|GRE))?|Radeon\\\\s*(?:AI\\\\s*PRO\\\\s*|PRO\\\\s*)?(?:W\\\\d{{4}}|WX\\\\d{{4}}|R?\\\\d{{4}})[A-Z]*|Arc\\\\s*(?:Pro\\\\s*)?[A-Z]?\\\\d{{2,3}}|Quadro\\\\s*(?:RTX\\\\s*)?[A-Z0-9]+)\\\\b', 1), '\\\\s+', ' ', 'g'))
+                    WHEN ci.std_category = 'GPU' AND regexp_matches(ci.name, '(?i)(RTX\\s*[0-9]{3,4}M?(?:\\s*(?:Ti\\s*SUPER|Ti|SUPER))?|GTX\\s*[0-9]{3,4}M?(?:\\s*Ti)?|GT\\s*[0-9]{3,4}|RX\\s*[0-9]{3,4}(?:\\s*(?:XTX|XT|GRE))?|Radeon\\s*(?:AI\\s*PRO\\s*|PRO\\s*)?(?:W[0-9]{4}|WX[0-9]{4}|R?[0-9]{4})[A-Z]*|Arc\\s*(?:Pro\\s*)?[A-Z]?[0-9]{2,3}|Quadro\\s*(?:RTX\\s*)?[A-Z0-9]+)')
+                        THEN upper(regexp_replace(regexp_extract(ci.name, '(?i)(RTX\\s*[0-9]{3,4}M?(?:\\s*(?:Ti\\s*SUPER|Ti|SUPER))?|GTX\\s*[0-9]{3,4}M?(?:\\s*Ti)?|GT\\s*[0-9]{3,4}|RX\\s*[0-9]{3,4}(?:\\s*(?:XTX|XT|GRE))?|Radeon\\s*(?:AI\\s*PRO\\s*|PRO\\s*)?(?:W[0-9]{4}|WX[0-9]{4}|R?[0-9]{4})[A-Z]*|Arc\\s*(?:Pro\\s*)?[A-Z]?[0-9]{2,3}|Quadro\\s*(?:RTX\\s*)?[A-Z0-9]+)', 1), '\\s+', ' ', 'g'))
 
                     -- Dynamic CPU Grammar
                     WHEN ci.std_category = 'CPU' AND lower(ci.name) LIKE '%threadripper%' THEN 'AMD Threadripper'
                     WHEN ci.std_category = 'CPU' AND lower(ci.name) LIKE '%epyc%' THEN 'AMD EPYC'
-                    WHEN ci.std_category = 'CPU' AND regexp_matches(ci.name, '(?i)Ryzen\\\\s*(?:PRO\\\\s*)?9') THEN 'AMD Ryzen 9'
-                    WHEN ci.std_category = 'CPU' AND regexp_matches(ci.name, '(?i)Ryzen\\\\s*(?:PRO\\\\s*)?7') THEN 'AMD Ryzen 7'
-                    WHEN ci.std_category = 'CPU' AND regexp_matches(ci.name, '(?i)Ryzen\\\\s*(?:PRO\\\\s*)?5') THEN 'AMD Ryzen 5'
-                    WHEN ci.std_category = 'CPU' AND regexp_matches(ci.name, '(?i)Ryzen\\\\s*(?:PRO\\\\s*)?3') THEN 'AMD Ryzen 3'
-                    WHEN ci.std_category = 'CPU' AND regexp_matches(ci.name, '(?i)Core\\\\s*Ultra\\\\s*9') THEN 'Intel Core Ultra 9'
-                    WHEN ci.std_category = 'CPU' AND regexp_matches(ci.name, '(?i)Core\\\\s*Ultra\\\\s*7') THEN 'Intel Core Ultra 7'
-                    WHEN ci.std_category = 'CPU' AND regexp_matches(ci.name, '(?i)Core\\\\s*Ultra\\\\s*5') THEN 'Intel Core Ultra 5'
-                    WHEN ci.std_category = 'CPU' AND regexp_matches(ci.name, '(?i)Core\\\\s*i9') THEN 'Intel Core i9'
-                    WHEN ci.std_category = 'CPU' AND regexp_matches(ci.name, '(?i)Core\\\\s*i7') THEN 'Intel Core i7'
-                    WHEN ci.std_category = 'CPU' AND regexp_matches(ci.name, '(?i)Core\\\\s*i5') THEN 'Intel Core i5'
-                    WHEN ci.std_category = 'CPU' AND regexp_matches(ci.name, '(?i)Core\\\\s*i3') THEN 'Intel Core i3'
+                    WHEN ci.std_category = 'CPU' AND regexp_matches(ci.name, '(?i)Ryzen\\s*(?:PRO\\s*)?9') THEN 'AMD Ryzen 9'
+                    WHEN ci.std_category = 'CPU' AND regexp_matches(ci.name, '(?i)Ryzen\\s*(?:PRO\\s*)?7') THEN 'AMD Ryzen 7'
+                    WHEN ci.std_category = 'CPU' AND regexp_matches(ci.name, '(?i)Ryzen\\s*(?:PRO\\s*)?5') THEN 'AMD Ryzen 5'
+                    WHEN ci.std_category = 'CPU' AND regexp_matches(ci.name, '(?i)Ryzen\\s*(?:PRO\\s*)?3') THEN 'AMD Ryzen 3'
+                    WHEN ci.std_category = 'CPU' AND regexp_matches(ci.name, '(?i)Core\\s*Ultra\\s*9') THEN 'Intel Core Ultra 9'
+                    WHEN ci.std_category = 'CPU' AND regexp_matches(ci.name, '(?i)Core\\s*Ultra\\s*7') THEN 'Intel Core Ultra 7'
+                    WHEN ci.std_category = 'CPU' AND regexp_matches(ci.name, '(?i)Core\\s*Ultra\\s*5') THEN 'Intel Core Ultra 5'
+                    WHEN ci.std_category = 'CPU' AND regexp_matches(ci.name, '(?i)Core\\s*i9') THEN 'Intel Core i9'
+                    WHEN ci.std_category = 'CPU' AND regexp_matches(ci.name, '(?i)Core\\s*i7') THEN 'Intel Core i7'
+                    WHEN ci.std_category = 'CPU' AND regexp_matches(ci.name, '(?i)Core\\s*i5') THEN 'Intel Core i5'
+                    WHEN ci.std_category = 'CPU' AND regexp_matches(ci.name, '(?i)Core\\s*i3') THEN 'Intel Core i3'
                     WHEN ci.std_category = 'CPU' AND lower(ci.name) LIKE '%xeon%' THEN 'Intel Xeon'
                     WHEN ci.std_category = 'CPU' AND lower(ci.name) LIKE '%pentium%' THEN 'Intel Pentium'
                     WHEN ci.std_category = 'CPU' AND lower(ci.name) LIKE '%athlon%' THEN 'AMD Athlon'
                     WHEN ci.std_category = 'CPU' AND lower(ci.name) LIKE '%celeron%' THEN 'Intel Celeron'
 
                     -- Dynamic RAM Grammar
-                    WHEN ci.std_category = 'RAM' AND regexp_matches(ci.name, '(?i)\\\\bDDR5\\\\b') AND regexp_matches(ci.name, '(?i)\\\\b(8|16|24|32|48|64|96|128)\\\\s*GB\\\\b')
-                        THEN 'DDR5 ' || regexp_extract(ci.name, '(?i)\\\\b(8|16|24|32|48|64|96|128)\\\\s*GB\\\\b', 1) || 'GB'
-                    WHEN ci.std_category = 'RAM' AND regexp_matches(ci.name, '(?i)\\\\bDDR4\\\\b') AND regexp_matches(ci.name, '(?i)\\\\b(8|16|24|32|48|64)\\\\s*GB\\\\b')
-                        THEN 'DDR4 ' || regexp_extract(ci.name, '(?i)\\\\b(8|16|24|32|48|64)\\\\s*GB\\\\b', 1) || 'GB'
-                    WHEN ci.std_category = 'RAM' AND regexp_matches(ci.name, '(?i)\\\\bDDR3\\\\b') THEN 'DDR3'
+                    WHEN ci.std_category = 'RAM' AND regexp_matches(ci.name, '(?i)DDR5') AND regexp_matches(ci.name, '(?i)(8|16|24|32|48|64|96|128)\\s*GB')
+                        THEN 'DDR5 ' || regexp_extract(ci.name, '(?i)(8|16|24|32|48|64|96|128)\\s*GB', 1) || 'GB'
+                    WHEN ci.std_category = 'RAM' AND regexp_matches(ci.name, '(?i)DDR4') AND regexp_matches(ci.name, '(?i)(8|16|24|32|48|64)\\s*GB')
+                        THEN 'DDR4 ' || regexp_extract(ci.name, '(?i)(8|16|24|32|48|64)\\s*GB', 1) || 'GB'
+                    WHEN ci.std_category = 'RAM' AND regexp_matches(ci.name, '(?i)DDR3') THEN 'DDR3'
 
                     -- Dynamic Storage Grammar
-                    WHEN ci.std_category = 'Storage' AND regexp_matches(ci.name, '(?i)\\\\b(NVMe|PCIe|M\\\\.2)\\\\b') AND regexp_matches(ci.name, '(?i)\\\\b(4|2|1)\\\\s*TB\\\\b')
-                        THEN 'NVMe ' || regexp_extract(ci.name, '(?i)\\\\b(4|2|1)\\\\s*TB\\\\b', 1) || 'TB'
-                    WHEN ci.std_category = 'Storage' AND regexp_matches(ci.name, '(?i)\\\\b(NVMe|PCIe|M\\\\.2)\\\\b') AND regexp_matches(ci.name, '(?i)\\\\b(500|512|250|256)\\\\s*GB\\\\b')
-                        THEN 'NVMe ' || regexp_extract(ci.name, '(?i)\\\\b(500|512|250|256)\\\\s*GB\\\\b', 1) || 'GB'
-                    WHEN ci.std_category = 'Storage' AND regexp_matches(ci.name, '(?i)\\\\bSATA\\\\b') AND regexp_matches(ci.name, '(?i)\\\\b(2|1)\\\\s*TB\\\\b')
-                        THEN 'SATA ' || regexp_extract(ci.name, '(?i)\\\\b(2|1)\\\\s*TB\\\\b', 1) || 'TB'
-                    WHEN ci.std_category = 'Storage' AND regexp_matches(ci.name, '(?i)\\\\bSATA\\\\b') AND regexp_matches(ci.name, '(?i)\\\\b(500|512|240|256|120|128)\\\\s*GB\\\\b')
-                        THEN 'SATA ' || regexp_extract(ci.name, '(?i)\\\\b(500|512|240|256|120|128)\\\\s*GB\\\\b', 1) || 'GB'
-                    WHEN ci.std_category = 'Storage' AND regexp_matches(ci.name, '(?i)\\\\bSSD\\\\b') AND regexp_matches(ci.name, '(?i)\\\\b(4|2|1)\\\\s*TB\\\\b')
-                        THEN 'SSD ' || regexp_extract(ci.name, '(?i)\\\\b(4|2|1)\\\\s*TB\\\\b', 1) || 'TB'
-                    WHEN ci.std_category = 'Storage' AND regexp_matches(ci.name, '(?i)\\\\bSSD\\\\b') AND regexp_matches(ci.name, '(?i)\\\\b(500|512|250|256|120|128)\\\\s*GB\\\\b')
-                        THEN 'SSD ' || regexp_extract(ci.name, '(?i)\\\\b(500|512|250|256|120|128)\\\\s*GB\\\\b', 1) || 'GB'
-                    WHEN ci.std_category = 'Storage' AND regexp_matches(ci.name, '(?i)\\\\b(HDD|Hard Disk|IronWolf|SkyHawk|BarraCuda|WD Purple|WD Red)\\\\b') THEN 'HDD'
-                    WHEN ci.std_category = 'Storage' AND regexp_matches(ci.name, '(?i)\\\\b(MicroSD|SDHC|SDXC|Flashdisk|Flash Drive|Cruzer)\\\\b') THEN 'Flash / SD'
+                    WHEN ci.std_category = 'Storage' AND regexp_matches(ci.name, '(?i)(NVMe|PCIe|M\\.2)') AND regexp_matches(ci.name, '(?i)(4|2|1)\\s*TB')
+                        THEN 'NVMe ' || regexp_extract(ci.name, '(?i)(4|2|1)\\s*TB', 1) || 'TB'
+                    WHEN ci.std_category = 'Storage' AND regexp_matches(ci.name, '(?i)(NVMe|PCIe|M\\.2)') AND regexp_matches(ci.name, '(?i)(500|512|250|256)\\s*GB')
+                        THEN 'NVMe ' || regexp_extract(ci.name, '(?i)(500|512|250|256)\\s*GB', 1) || 'GB'
+                    WHEN ci.std_category = 'Storage' AND regexp_matches(ci.name, '(?i)SATA') AND regexp_matches(ci.name, '(?i)(2|1)\\s*TB')
+                        THEN 'SATA ' || regexp_extract(ci.name, '(?i)(2|1)\\s*TB', 1) || 'TB'
+                    WHEN ci.std_category = 'Storage' AND regexp_matches(ci.name, '(?i)SATA') AND regexp_matches(ci.name, '(?i)(500|512|240|256|120|128)\\s*GB')
+                        THEN 'SATA ' || regexp_extract(ci.name, '(?i)(500|512|240|256|120|128)\\s*GB', 1) || 'GB'
+                    WHEN ci.std_category = 'Storage' AND regexp_matches(ci.name, '(?i)SSD') AND regexp_matches(ci.name, '(?i)(4|2|1)\\s*TB')
+                        THEN 'SSD ' || regexp_extract(ci.name, '(?i)(4|2|1)\\s*TB', 1) || 'TB'
+                    WHEN ci.std_category = 'Storage' AND regexp_matches(ci.name, '(?i)SSD') AND regexp_matches(ci.name, '(?i)(500|512|250|256|120|128)\\s*GB')
+                        THEN 'SSD ' || regexp_extract(ci.name, '(?i)(500|512|250|256|120|128)\\s*GB', 1) || 'GB'
+                    WHEN ci.std_category = 'Storage' AND regexp_matches(ci.name, '(?i)(HDD|Hard Disk|IronWolf|SkyHawk|BarraCuda|WD Purple|WD Red)') THEN 'HDD'
+                    WHEN ci.std_category = 'Storage' AND regexp_matches(ci.name, '(?i)(MicroSD|SDHC|SDXC|Flashdisk|Flash Drive|Cruzer)') THEN 'Flash / SD'
 
                     -- Dynamic Motherboard Chipsets
-                    WHEN ci.std_category = 'Motherboard' AND regexp_matches(ci.name, '(?i)\\\\b(Z890|Z790|Z690|B860|B760|B660|H810|H610|H510|W790)\\\\b')
-                        THEN 'Intel ' || upper(regexp_extract(ci.name, '(?i)\\\\b(Z890|Z790|Z690|B860|B760|B660|H810|H610|H510|W790)\\\\b', 1))
-                    WHEN ci.std_category = 'Motherboard' AND regexp_matches(ci.name, '(?i)\\\\b(X870E|X870|X670E|X670|B850|B650E|B650|B550|A620|B450|A520|A320|WRX90|TRX50)\\\\b')
-                        THEN 'AMD ' || upper(regexp_extract(ci.name, '(?i)\\\\b(X870E|X870|X670E|X670|B850|B650E|B650|B550|A620|B450|A520|A320|WRX90|TRX50)\\\\b', 1))
+                    WHEN ci.std_category = 'Motherboard' AND regexp_matches(ci.name, '(?i)(Z890|Z790|Z690|B860|B760|B660|H810|H610|H510|W790)')
+                        THEN 'Intel ' || upper(regexp_extract(ci.name, '(?i)(Z890|Z790|Z690|B860|B760|B660|H810|H610|H510|W790)', 1))
+                    WHEN ci.std_category = 'Motherboard' AND regexp_matches(ci.name, '(?i)(X870E|X870|X670E|X670|B850|B650E|B650|B550|A620|B450|A520|A320|WRX90|TRX50)')
+                        THEN 'AMD ' || upper(regexp_extract(ci.name, '(?i)(X870E|X870|X670E|X670|B850|B650E|B650|B550|A620|B450|A520|A320|WRX90|TRX50)', 1))
 
                     -- Dynamic PSU Wattage
-                    WHEN ci.std_category = 'PSU' AND TRY_CAST(regexp_extract(ci.name, '(?i)\\\\b(\\\\d{{3,4}})\\\\s*W\\\\b', 1) AS INT) >= 1000 THEN '1000W+'
-                    WHEN ci.std_category = 'PSU' AND TRY_CAST(regexp_extract(ci.name, '(?i)\\\\b(\\\\d{{3,4}})\\\\s*W\\\\b', 1) AS INT) >= 850 THEN '850W'
-                    WHEN ci.std_category = 'PSU' AND TRY_CAST(regexp_extract(ci.name, '(?i)\\\\b(\\\\d{{3,4}})\\\\s*W\\\\b', 1) AS INT) >= 750 THEN '750W'
-                    WHEN ci.std_category = 'PSU' AND TRY_CAST(regexp_extract(ci.name, '(?i)\\\\b(\\\\d{{3,4}})\\\\s*W\\\\b', 1) AS INT) >= 650 THEN '650W'
-                    WHEN ci.std_category = 'PSU' AND TRY_CAST(regexp_extract(ci.name, '(?i)\\\\b(\\\\d{{3,4}})\\\\s*W\\\\b', 1) AS INT) >= 550 THEN '550W'
-                    WHEN ci.std_category = 'PSU' AND TRY_CAST(regexp_extract(ci.name, '(?i)\\\\b(\\\\d{{3,4}})\\\\s*W\\\\b', 1) AS INT) >= 500 THEN '500W'
-                    WHEN ci.std_category = 'PSU' AND TRY_CAST(regexp_extract(ci.name, '(?i)\\\\b(\\\\d{{3,4}})\\\\s*W\\\\b', 1) AS INT) >= 400 THEN '400W-450W'
+                    WHEN ci.std_category = 'PSU' AND TRY_CAST(regexp_extract(ci.name, '(?i)([0-9]{3,4})\\s*W', 1) AS INT) >= 1000 THEN '1000W+'
+                    WHEN ci.std_category = 'PSU' AND TRY_CAST(regexp_extract(ci.name, '(?i)([0-9]{3,4})\\s*W', 1) AS INT) >= 850 THEN '850W'
+                    WHEN ci.std_category = 'PSU' AND TRY_CAST(regexp_extract(ci.name, '(?i)([0-9]{3,4})\\s*W', 1) AS INT) >= 750 THEN '750W'
+                    WHEN ci.std_category = 'PSU' AND TRY_CAST(regexp_extract(ci.name, '(?i)([0-9]{3,4})\\s*W', 1) AS INT) >= 650 THEN '650W'
+                    WHEN ci.std_category = 'PSU' AND TRY_CAST(regexp_extract(ci.name, '(?i)([0-9]{3,4})\\s*W', 1) AS INT) >= 550 THEN '550W'
+                    WHEN ci.std_category = 'PSU' AND TRY_CAST(regexp_extract(ci.name, '(?i)([0-9]{3,4})\\s*W', 1) AS INT) >= 500 THEN '500W'
+                    WHEN ci.std_category = 'PSU' AND TRY_CAST(regexp_extract(ci.name, '(?i)([0-9]{3,4})\\s*W', 1) AS INT) >= 400 THEN '400W-450W'
 
                     ELSE 'Standard'
                 END
@@ -332,9 +333,9 @@ def load_hardware_data(
                 WHEN ci.std_category IN ('Storage', 'RAM') THEN
                     ROUND(ci.price / NULLIF(
                         CASE 
-                            WHEN upper(regexp_extract(ci.name, '(?i)(\\\\d+)\\\\s*(GB|TB)', 2)) = 'TB' 
-                            THEN TRY_CAST(regexp_extract(ci.name, '(?i)(\\\\d+)\\\\s*(GB|TB)', 1) AS INT) * 1000
-                            ELSE TRY_CAST(regexp_extract(ci.name, '(?i)(\\\\d+)\\\\s*(GB|TB)', 1) AS INT)
+                            WHEN upper(regexp_extract(ci.name, '(?i)([0-9]+)\\s*(GB|TB)', 2)) = 'TB' 
+                            THEN TRY_CAST(regexp_extract(ci.name, '(?i)([0-9]+)\\s*(GB|TB)', 1) AS INT) * 1000
+                            ELSE TRY_CAST(regexp_extract(ci.name, '(?i)([0-9]+)\\s*(GB|TB)', 1) AS INT)
                         END, 0
                     ))
                 ELSE NULL
@@ -342,7 +343,8 @@ def load_hardware_data(
             (ac.tier IS NOT NULL) AS is_ai_classified
         FROM cleaned_input ci
         LEFT JOIN ai_cache ac ON ac.name = ci.name
-    """)
+        """.replace("{file_list_sql}", file_list_sql)
+    )
 
     # 3. Check unclassified items and run AI fallback if enabled
     unclassified_rows = conn.execute("""
@@ -395,7 +397,7 @@ def load_hardware_data(
                     ) as rn
                 FROM gpu_unique_tiers gt
                 JOIN raw_benchmarks b ON b.category = 'GPU' 
-                    AND regexp_matches(b.name, '(?i)\\\\b' || replace(gt.tier, ' ', '\\\\s*') || '\\\\b')
+                    AND regexp_matches(b.name, '(?i)' || replace(gt.tier, ' ', '\\s*'))
             )
             SELECT tier, bench_name, bench_score, bench_type 
             FROM matched_gpus 
@@ -412,17 +414,17 @@ def load_hardware_data(
                     CASE 
                         WHEN lower(name) LIKE '%threadripper%' THEN 'AMD Threadripper'
                         WHEN lower(name) LIKE '%epyc%' THEN 'AMD EPYC'
-                        WHEN regexp_matches(name, '(?i)Ryzen\\\\s*(?:PRO\\\\s*)?9') THEN 'AMD Ryzen 9'
-                        WHEN regexp_matches(name, '(?i)Ryzen\\\\s*(?:PRO\\\\s*)?7') THEN 'AMD Ryzen 7'
-                        WHEN regexp_matches(name, '(?i)Ryzen\\\\s*(?:PRO\\\\s*)?5') THEN 'AMD Ryzen 5'
-                        WHEN regexp_matches(name, '(?i)Ryzen\\\\s*(?:PRO\\\\s*)?3') THEN 'AMD Ryzen 3'
-                        WHEN regexp_matches(name, '(?i)Core\\\\s*Ultra\\\\s*9') THEN 'Intel Core Ultra 9'
-                        WHEN regexp_matches(name, '(?i)Core\\\\s*Ultra\\\\s*7') THEN 'Intel Core Ultra 7'
-                        WHEN regexp_matches(name, '(?i)Core\\\\s*Ultra\\\\s*5') THEN 'Intel Core Ultra 5'
-                        WHEN regexp_matches(name, '(?i)Core\\\\s*i9') THEN 'Intel Core i9'
-                        WHEN regexp_matches(name, '(?i)Core\\\\s*i7') THEN 'Intel Core i7'
-                        WHEN regexp_matches(name, '(?i)Core\\\\s*i5') THEN 'Intel Core i5'
-                        WHEN regexp_matches(name, '(?i)Core\\\\s*i3') THEN 'Intel Core i3'
+                        WHEN regexp_matches(name, '(?i)Ryzen\\s*(?:PRO\\s*)?9') THEN 'AMD Ryzen 9'
+                        WHEN regexp_matches(name, '(?i)Ryzen\\s*(?:PRO\\s*)?7') THEN 'AMD Ryzen 7'
+                        WHEN regexp_matches(name, '(?i)Ryzen\\s*(?:PRO\\s*)?5') THEN 'AMD Ryzen 5'
+                        WHEN regexp_matches(name, '(?i)Ryzen\\s*(?:PRO\\s*)?3') THEN 'AMD Ryzen 3'
+                        WHEN regexp_matches(name, '(?i)Core\\s*Ultra\\s*9') THEN 'Intel Core Ultra 9'
+                        WHEN regexp_matches(name, '(?i)Core\\s*Ultra\\s*7') THEN 'Intel Core Ultra 7'
+                        WHEN regexp_matches(name, '(?i)Core\\s*Ultra\\s*5') THEN 'Intel Core Ultra 5'
+                        WHEN regexp_matches(name, '(?i)Core\\s*i9') THEN 'Intel Core i9'
+                        WHEN regexp_matches(name, '(?i)Core\\s*i7') THEN 'Intel Core i7'
+                        WHEN regexp_matches(name, '(?i)Core\\s*i5') THEN 'Intel Core i5'
+                        WHEN regexp_matches(name, '(?i)Core\\s*i3') THEN 'Intel Core i3'
                         WHEN lower(name) LIKE '%xeon%' THEN 'Intel Xeon'
                         WHEN lower(name) LIKE '%pentium%' THEN 'Intel Pentium'
                         WHEN lower(name) LIKE '%athlon%' THEN 'AMD Athlon'
@@ -1304,6 +1306,14 @@ def render_html_report(analytics: dict[str, Any], output_path: Path) -> None:
       document.querySelectorAll('.nav-tab').forEach(el => el.classList.remove('active'));
       document.getElementById(tabId).classList.add('active');
       event.currentTarget.classList.add('active');
+      setTimeout(() => {{
+        if (typeof Chart !== 'undefined' && Chart.instances) {{
+          Object.values(Chart.instances).forEach(c => {{
+            try {{ c.resize(); }} catch(e) {{}}
+          }});
+        }}
+        window.dispatchEvent(new Event('resize'));
+      }}, 50);
     }}
 
     // Render All Charts on Load
