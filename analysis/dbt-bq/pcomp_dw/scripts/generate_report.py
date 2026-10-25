@@ -73,10 +73,13 @@ def load_hardware_data(data_dir: Path) -> duckdb.DuckDBPyConnection:
                 WHEN lower(category) IN ('proc', 'processor') THEN 'CPU'
                 WHEN lower(category) IN ('vga') THEN 'GPU'
                 WHEN lower(category) IN ('memory', 'memory-ram') THEN 'RAM'
-                WHEN lower(category) IN ('storage', 'solid-state-drive') THEN 'Storage'
+                WHEN lower(category) IN ('storage', 'solid-state-drive', 'hard-disk') THEN 'Storage'
                 WHEN lower(category) IN ('motherboard') THEN 'Motherboard'
                 WHEN lower(category) IN ('psu') THEN 'PSU'
                 WHEN lower(category) IN ('casing') THEN 'Casing'
+                WHEN lower(category) IN ('lcd') THEN 'Monitor'
+                WHEN lower(category) IN ('cooler') THEN 'Cooler'
+                WHEN lower(category) IN ('keyboard', 'keymouse') THEN 'Peripheral'
                 ELSE 'Other'
             END AS std_category,
             COALESCE(NULLIF(regexp_extract(name, '(?i)(Asus|MSI|Gigabyte|ASRock|Zotac|Colorful|Palit|Galax|Sapphire|PowerColor|XFX|Inno3D|Kingston|Samsung|Corsair|Adata|Team|Klevv|Lexar|Seagate|WD|Western Digital|Deepcool|Thermalright|Seasonic|FSP|be quiet|Cooler Master|NZXT|Fractal|Lian Li|Antec|Thermaltake|Silverstone)', 1), ''), 'Other') AS brand,
@@ -746,7 +749,10 @@ def render_html_report(analytics: Dict[str, Any], output_path: Path) -> None:
         <button class="filter-btn" data-cat="Storage" onclick="setCategoryFilter('Storage')">Storage ({len([x for x in analytics['table_items'] if x['category'] == 'Storage']):,})</button>
         <button class="filter-btn" data-cat="Motherboard" onclick="setCategoryFilter('Motherboard')">Motherboard ({len([x for x in analytics['table_items'] if x['category'] == 'Motherboard']):,})</button>
         <button class="filter-btn" data-cat="PSU" onclick="setCategoryFilter('PSU')">PSU ({len([x for x in analytics['table_items'] if x['category'] == 'PSU']):,})</button>
+        <button class="filter-btn" data-cat="Monitor" onclick="setCategoryFilter('Monitor')">Monitor ({len([x for x in analytics['table_items'] if x['category'] == 'Monitor']):,})</button>
+        <button class="filter-btn" data-cat="Cooler" onclick="setCategoryFilter('Cooler')">Cooler ({len([x for x in analytics['table_items'] if x['category'] == 'Cooler']):,})</button>
         <button class="filter-btn" data-cat="Casing" onclick="setCategoryFilter('Casing')">Casing ({len([x for x in analytics['table_items'] if x['category'] == 'Casing']):,})</button>
+        <button class="filter-btn" data-cat="Peripheral" onclick="setCategoryFilter('Peripheral')">Peripherals ({len([x for x in analytics['table_items'] if x['category'] == 'Peripheral']):,})</button>
       </div>
 
       <div class="filter-btn-group" id="retailerFilters">
