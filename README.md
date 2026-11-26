@@ -46,7 +46,7 @@ Repository layout: [`analysis/`](./analysis) · [`ai/`](./ai) · [`tools/`](./to
 | [`automation/extract_transactions.py`](./tools/automation/extract_transactions.py) | Parse transactions from HTML into CSV (BeautifulSoup) |
 | [`automation/fatsecret_barcode.py`](./tools/automation/fatsecret_barcode.py) | Fetch food nutrition details from FatSecret by barcode (supports local `.env` credentials) |
 | [`automation/reset_ipynb.py`](./tools/automation/reset_ipynb.py) | Clear all outputs from Jupyter notebooks (historical `career/` archives) |
-| [`automation/rm_pw_pdf.py`](./tools/automation/rm_pw_pdf.py) | Remove password protection from PDF files |
+| [`automation/rm_pw_pdf.py`](./tools/automation/rm_pw_pdf.py) | Remove password protection from PDF files (single file, multi-file, or folder batch) |
 | [`automation/speed_test.py`](./tools/automation/speed_test.py) | Run an internet speed test from the CLI |
 | [`automation/extract_gh_projects/`](./tools/automation/extract_gh_projects) | Export GitHub repo metadata datasets (JSON/JSONL/CSV) via `gh api graphql` |
 | [`email-py/`](./tools/email-py) | IMAP/SMTP toolkit: Ethereal test-account read/send, Gmail unread checks, email→ticket polling service |
